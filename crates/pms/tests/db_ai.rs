@@ -1,6 +1,6 @@
 mod common;
 
-use common::{Env, PRJ};
+use common::{fake_bin, Env, PRJ};
 use predicates::prelude::*;
 use serde_json::json;
 use wiremock::matchers::{body_json, method, path};
@@ -332,4 +332,190 @@ async fn ai_key_edit_rotate_delete() {
         .args(["-p", PRJ, "-y", "ai-key", "delete", "app"])
         .assert()
         .success();
+}
+
+// --- pms db connect ---
+
+async fn mount_connectable(api: &MockServer, extra: serde_json::Value) {
+    let mut fields = json!({"private_ip": "10.43.0.9", "ssh_host": "jump.example.org"});
+    fields
+        .as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/projects/{PRJ}/databases")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [db(fields)]})))
+        .mount(api)
+        .await;
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_refuses_a_database_that_cannot_be_reached() {
+    for (extra, text) in [
+        (json!({"status": "provisioning"}), "must be running"),
+        (json!({"private_ip": null}), "no private IP"),
+        (json!({"private_ip": ""}), "no private IP"),
+        (json!({"ssh_host": ""}), "no SSH jump host"),
+    ] {
+        let (api, env) = setup().await;
+        mount_connectable(&api, extra).await;
+        // No ssh and no cloudflared on PATH: the checks come first, and nothing is offered for download.
+        env.cmd(&api.uri())
+            .env("PATH", env.dir.path())
+            .args(["-p", PRJ, "db", "connect", "main"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(text));
+        assert!(!env.dir.path().join("data").exists());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_refuses_a_port_that_is_taken() {
+    let (api, env) = setup().await;
+    mount_connectable(&api, json!({})).await;
+    let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = taken.local_addr().unwrap().port().to_string();
+    env.cmd(&api.uri())
+        .env("PATH", env.dir.path())
+        .args(["-p", PRJ, "db", "connect", "main", "--port", &port])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(format!(
+            "Local port {port} is not free"
+        )));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_without_cloudflared_asks_before_downloading() {
+    let (api, env) = setup().await;
+    mount_connectable(&api, json!({})).await;
+    let bin = env.dir.path().join("bin");
+    fake_bin(&bin, "ssh", "echo should-not-run");
+    env.cmd(&api.uri())
+        .env("PATH", &bin)
+        .args([
+            "-p",
+            PRJ,
+            "db",
+            "connect",
+            "main",
+            "--port",
+            &free_port().to_string(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cloudflared").and(predicate::str::contains("--yes")));
+    assert!(!env.dir.path().join("data").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_says_so_when_ssh_stops_early() {
+    let (api, env) = setup().await;
+    mount_connectable(&api, json!({})).await;
+    let bin = env.dir.path().join("bin");
+    fake_bin(
+        &bin,
+        "ssh",
+        "for a in \"$@\"; do echo \"ARG:$a\"; done; exit 255",
+    );
+    fake_bin(&bin, "cloudflared", "exit 0");
+    let port = free_port();
+    env.cmd(&api.uri())
+        .env("PATH", &bin)
+        .args([
+            "-p",
+            PRJ,
+            "db",
+            "connect",
+            "main",
+            "--port",
+            &port.to_string(),
+            "-i",
+            "/keys/id",
+        ])
+        .assert()
+        .failure()
+        .stdout(
+            predicate::str::contains(format!("ARG:127.0.0.1:{port}:10.43.0.9:5432"))
+                .and(predicate::str::contains("ARG:-N"))
+                .and(predicate::str::contains("ARG:/keys/id"))
+                .and(predicate::str::contains(format!(
+                    "ARG:ProxyCommand={}/cloudflared access ssh --hostname jump.example.org",
+                    bin.display()
+                )))
+                .and(predicate::str::contains("ARG:jump.example.org")),
+        )
+        .stderr(predicate::str::contains(
+            "ssh stopped before the tunnel was ready",
+        ));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_prints_the_url_and_stops_on_ctrl_c() {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    let (api, env) = setup().await;
+    mount_connectable(&api, json!({})).await;
+    let bin = env.dir.path().join("bin");
+    // The fake ssh does not listen. The test listens on the port, as ssh would after it logs in.
+    fake_bin(
+        &bin,
+        "ssh",
+        "/bin/sleep 5 & trap '/bin/kill $!; exit 0' TERM; wait",
+    );
+    fake_bin(&bin, "cloudflared", "exit 0");
+    let port = free_port();
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("pms"))
+        .env("PMS_CONFIG_DIR", env.config_dir())
+        .env("PMS_DATA_DIR", env.dir.path().join("data"))
+        .env("PMS_NO_KEYRING", "1")
+        .env("PMS_API_URL", api.uri())
+        .env("PATH", &bin)
+        .args([
+            "-p",
+            PRJ,
+            "db",
+            "connect",
+            "main",
+            "--port",
+            &port.to_string(),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let listener = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    assert_eq!(
+        line.trim(),
+        format!("postgres://app:<password>@localhost:{port}/app")
+    );
+    std::process::Command::new("/bin/kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    drop(listener);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Stopped."));
 }

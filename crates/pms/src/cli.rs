@@ -440,6 +440,20 @@ pub enum DbCmd {
     Vector(VectorCmd),
     /// Make a new password. The password is shown one time.
     ResetPassword { database: String },
+    /// Open a local port to a database through the SSH jump host. Press Ctrl-C to stop.
+    Connect(DbConnectArgs),
+}
+
+#[derive(Args)]
+pub struct DbConnectArgs {
+    /// Database ID or name.
+    pub database: String,
+    /// Local port to listen on (on localhost only).
+    #[arg(long, default_value_t = 5432)]
+    pub port: u16,
+    /// Private key file to use. It must be a key that you saved or gave to a VM.
+    #[arg(short = 'i', long)]
+    pub identity: Option<std::path::PathBuf>,
 }
 
 #[derive(Subcommand)]

@@ -112,7 +112,7 @@ pub async fn ensure(ctx: &Ctx) -> Result<PathBuf> {
     })?;
     let dest = installed_path()?;
     ctx.confirm(&format!(
-        "SSH to a VM needs cloudflared, and it was not found. Download cloudflared {VERSION} from \
+        "SSH needs cloudflared, and it was not found. Download cloudflared {VERSION} from \
          github.com/cloudflare/cloudflared and install it in {}?",
         dest.parent().unwrap_or(&dest).display()
     ))
