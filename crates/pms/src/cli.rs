@@ -60,6 +60,12 @@ pub enum Command {
     /// Containers.
     #[command(subcommand)]
     Container(ContainerCmd),
+    /// Postgres databases.
+    #[command(subcommand)]
+    Db(DbCmd),
+    /// Keys for the AI API.
+    #[command(subcommand, name = "ai-key")]
+    AiKey(AiKeyCmd),
     /// Registry logins for private images.
     #[command(subcommand, name = "registry-credential")]
     RegistryCredential(RegistryCmd),
@@ -393,4 +399,75 @@ pub enum RegistryCmd {
     },
     /// Delete a saved registry login (ID or name).
     Delete { credential: String },
+}
+
+#[derive(Subcommand)]
+pub enum DbCmd {
+    /// List databases.
+    List,
+    /// Make a database. The password is shown one time.
+    Create {
+        name: String,
+        /// Size ID. See `pms catalog sizes`. Default: the first size.
+        #[arg(long)]
+        size: Option<String>,
+        /// Turn on the pgvector extension.
+        #[arg(long)]
+        vector: bool,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Show a database (ID or name).
+    Show { database: String },
+    /// Delete a database. There are no backups.
+    Delete {
+        database: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Turn the pgvector extension on or off.
+    #[command(subcommand)]
+    Vector(VectorCmd),
+    /// Make a new password. The password is shown one time.
+    ResetPassword { database: String },
+}
+
+#[derive(Subcommand)]
+pub enum VectorCmd {
+    /// Turn pgvector on.
+    On { database: String },
+    /// Turn pgvector off. It fails if a column or index uses it.
+    Off { database: String },
+}
+
+#[derive(Subcommand)]
+pub enum AiKeyCmd {
+    /// List keys.
+    List,
+    /// Make a key. The secret is shown one time.
+    Create {
+        name: String,
+        /// A model ID. Repeat for more. See `pms catalog models`.
+        #[arg(long = "model", required = true)]
+        models: Vec<String>,
+        /// Spending limit in USD.
+        #[arg(long)]
+        budget: f64,
+    },
+    /// Show a key (ID or name).
+    Show { key: String },
+    /// Change the models or the budget.
+    Edit {
+        key: String,
+        /// The new list of models. Repeat for more. It replaces the old list.
+        #[arg(long = "model")]
+        models: Vec<String>,
+        /// The new spending limit in USD.
+        #[arg(long)]
+        budget: Option<f64>,
+    },
+    /// Make a new secret. The old secret stops working. The secret is shown one time.
+    Rotate { key: String },
+    /// Delete a key.
+    Delete { key: String },
 }

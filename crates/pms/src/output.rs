@@ -55,6 +55,11 @@ pub fn status_text(status: &str, message: &Option<String>) -> String {
     }
 }
 
+/// Secrets show one time. The API does not return them again, so say it where the user looks.
+pub fn warn_one_time(what: &str) {
+    eprintln!("Save the {what} now. It is shown one time and cannot be read again.");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
