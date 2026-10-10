@@ -19,7 +19,7 @@ flate2 = "1.1.10"
 futures-util = "0.3.34"
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust", "vendored"] }
 open = "5.4.4"
-pms-client = { version = "0.2.0", path = "../pms-client" }
+pms-client = { version = "0.3.0", path = "../pms-client" }
 rand = "0.10.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots", "stream"] }
 serde = { version = "1.0.229", features = ["derive"] }
