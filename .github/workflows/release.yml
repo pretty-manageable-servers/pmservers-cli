@@ -20,6 +20,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Not the CI cache. CI runs on a newer Ubuntu, and the libdbus build in it does not link on 22.04.
+          key: release-ubuntu-22.04
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
@@ -63,7 +66,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: release-${{ matrix.os }}-${{ matrix.target }}
 
       - name: Install the arm64 Linux cross compiler
         if: matrix.target == 'aarch64-unknown-linux-gnu'
