@@ -1,6 +1,7 @@
 //! Hand-written client for the PMServers API. No CLI code.
 
 pub mod client;
+pub mod containers;
 pub mod core;
 pub mod error;
 pub mod events;

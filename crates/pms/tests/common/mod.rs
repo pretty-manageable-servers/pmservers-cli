@@ -92,3 +92,11 @@ pub fn fake_bin(dir: &Path, name: &str, script: &str) {
     std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
+
+pub fn container_json(status: &str) -> serde_json::Value {
+    json!({"id": "ctr_abc123def456", "name": "api", "type": "worker", "image": "ghcr.io/o/app:1",
+           "size": "pms-c-250m-512", "runtime": "gvisor", "vcpu": 0.25, "memory_mib": 512,
+           "registry_credential_id": null, "env_names": ["A", "B"], "status": status,
+           "status_message": null, "created_at": "2026-10-10T10:00:00+00:00",
+           "updated_at": "2026-10-10T10:00:00+00:00"})
+}

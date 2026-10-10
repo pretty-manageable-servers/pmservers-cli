@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use pms_client::vms::{CreateVm, PowerAction, Vm};
@@ -7,7 +7,7 @@ use pms_client::Client;
 use crate::cli::{CreateVmArgs, SshConfigArgs, VmCmd, VmSshArgs, WaitArgs};
 use crate::ctx::Ctx;
 use crate::output::{opt, print_kv, print_table, status_text, ts};
-use crate::wait::{self, Step};
+use crate::wait::{self, Snapshot};
 use crate::{cloudflared, console, keygen, ssh};
 
 pub async fn run(ctx: &Ctx, cmd: VmCmd) -> Result<()> {
@@ -89,31 +89,25 @@ fn timeout(w: &WaitArgs) -> Duration {
     Duration::from_secs(w.timeout)
 }
 
-/// Wait for a VM to reach `target`. A failed VM is an error.
+fn snapshot(vm: Vm) -> Snapshot<Vm> {
+    Snapshot {
+        name: vm.name.clone(),
+        status: vm.status.clone(),
+        message: vm.status_message.clone(),
+        value: vm,
+    }
+}
+
 async fn wait_for_status(
     client: &Client,
     project: &str,
     id: &str,
     target: &str,
     w: &WaitArgs,
+    restart: bool,
 ) -> Result<Vm> {
-    wait::until(client, id, timeout(w), || async {
-        let vm = client.vm(project, id).await?;
-        Ok(if vm.status == target {
-            Step::Done(vm)
-        } else if vm.status == "failed" {
-            Step::Failed(format!(
-                "VM {} failed: {}",
-                vm.name,
-                vm.status_message.as_deref().unwrap_or("no reason given")
-            ))
-        } else {
-            Step::Pending(format!(
-                "{}: {}",
-                vm.name,
-                status_text(&vm.status, &vm.status_message)
-            ))
-        })
+    wait::for_status(client, id, timeout(w), target, restart, || async {
+        Ok(snapshot(client.vm(project, id).await?))
     })
     .await
 }
@@ -175,7 +169,7 @@ async fn create(ctx: &Ctx, a: CreateVmArgs) -> Result<()> {
         );
     }
     if a.wait.wait {
-        vm = wait_for_status(&client, &project, &vm.id, "running", &a.wait).await?;
+        vm = wait_for_status(&client, &project, &vm.id, "running", &a.wait, false).await?;
     }
     ctx.print(&vm, details);
     Ok(())
@@ -191,16 +185,12 @@ async fn delete(ctx: &Ctx, wanted: &str, w: &WaitArgs) -> Result<()> {
     ))?;
     client.delete_vm(&project, &vm.id).await?;
     if w.wait {
-        wait::until(&client, &vm.id, timeout(w), || async {
-            Ok(match client.vm(&project, &vm.id).await {
-                Err(e) if e.is_not_found() => Step::Done(()),
-                Err(e) => return Err(e.into()),
-                Ok(v) => Step::Pending(format!(
-                    "{}: {}",
-                    v.name,
-                    status_text(&v.status, &v.status_message)
-                )),
-            })
+        wait::for_gone(&client, &vm.id, timeout(w), || async {
+            match client.vm(&project, &vm.id).await {
+                Err(e) if e.is_not_found() => Ok(None),
+                Err(e) => Err(e.into()),
+                Ok(v) => Ok(Some(snapshot(v).forget_value())),
+            }
         })
         .await?;
     }
@@ -219,49 +209,19 @@ async fn power(ctx: &Ctx, wanted: &str, action: PowerAction, w: &WaitArgs) -> Re
     let mut vm = client.vm_action(&project, &vm.id, action).await?;
     if w.wait {
         vm = match action {
-            PowerAction::Start => wait_for_status(&client, &project, &vm.id, "running", w).await?,
-            PowerAction::Stop => wait_for_status(&client, &project, &vm.id, "stopped", w).await?,
-            PowerAction::Restart => wait_restart(&client, &project, &vm, w).await?,
+            PowerAction::Start => {
+                wait_for_status(&client, &project, &vm.id, "running", w, false).await?
+            }
+            PowerAction::Stop => {
+                wait_for_status(&client, &project, &vm.id, "stopped", w, false).await?
+            }
+            PowerAction::Restart => {
+                wait_for_status(&client, &project, &vm.id, "running", w, true).await?
+            }
         };
     }
     ctx.print(&vm, details);
     Ok(())
-}
-
-/// Right after the call the VM can still say `running`. Wait until it left that state, or a
-/// grace time has passed, and then until it runs again.
-async fn wait_restart(client: &Client, project: &str, vm: &Vm, w: &WaitArgs) -> Result<Vm> {
-    let started = Instant::now();
-    let left_running = std::cell::Cell::new(vm.status != "running");
-    wait::until(client, &vm.id, timeout(w), || {
-        let left_running = &left_running;
-        async move {
-            let now = client.vm(project, &vm.id).await?;
-            if now.status != "running" {
-                left_running.set(true);
-            }
-            Ok(
-                if now.status == "running"
-                    && (left_running.get() || started.elapsed() > Duration::from_secs(20))
-                {
-                    Step::Done(now)
-                } else if now.status == "failed" {
-                    Step::Failed(format!(
-                        "VM {} failed: {}",
-                        now.name,
-                        now.status_message.as_deref().unwrap_or("no reason given")
-                    ))
-                } else {
-                    Step::Pending(format!(
-                        "{}: {}",
-                        now.name,
-                        status_text(&now.status, &now.status_message)
-                    ))
-                },
-            )
-        }
-    })
-    .await
 }
 
 async fn metrics(ctx: &Ctx, wanted: &str) -> Result<()> {

@@ -6,6 +6,7 @@ mod commands;
 mod config;
 mod console;
 mod ctx;
+mod envfile;
 mod keygen;
 mod login;
 mod output;

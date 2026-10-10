@@ -54,6 +54,15 @@ pub enum Command {
     Events(EventsArgs),
     /// Print an SSH config for the jump host and your VMs.
     SshConfig(SshConfigArgs),
+    /// Container access for your account.
+    #[command(subcommand)]
+    Access(AccessCmd),
+    /// Containers.
+    #[command(subcommand)]
+    Container(ContainerCmd),
+    /// Registry logins for private images.
+    #[command(subcommand, name = "registry-credential")]
+    RegistryCredential(RegistryCmd),
     /// SSH public keys saved on your account.
     #[command(subcommand, name = "ssh-key")]
     SshKey(SshKeyCmd),
@@ -247,4 +256,141 @@ pub struct SshConfigArgs {
     /// Jump host name. Default: the one the API reports for your VMs.
     #[arg(long)]
     pub jump_host: Option<String>,
+}
+
+#[derive(Subcommand)]
+pub enum AccessCmd {
+    /// Show the state of your container access.
+    Show,
+    /// Ask for container access. Say what you want to run.
+    Request { reason: String },
+}
+
+#[derive(Subcommand)]
+pub enum ContainerCmd {
+    /// List containers.
+    List,
+    /// Run a container.
+    Create(CreateContainerArgs),
+    /// Show a container (ID or name).
+    Show { container: String },
+    /// Change the image, size, credential, variables or runtime. This redeploys the container.
+    Edit(EditContainerArgs),
+    /// Delete a container.
+    Delete {
+        container: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Start a stopped container.
+    Start {
+        container: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Stop a container.
+    Stop {
+        container: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Restart a container.
+    Restart {
+        container: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Show the logs.
+    Logs(LogsArgs),
+}
+
+#[derive(Args)]
+pub struct EnvArgs {
+    /// An environment variable, KEY=VALUE. Repeat for more.
+    #[arg(short = 'e', long = "env", value_name = "KEY=VALUE")]
+    pub env: Vec<String>,
+    /// A file with KEY=VALUE lines.
+    #[arg(long, value_name = "FILE")]
+    pub env_file: Option<std::path::PathBuf>,
+}
+
+#[derive(Args)]
+pub struct CreateContainerArgs {
+    pub name: String,
+    /// Image, for example ghcr.io/owner/app:1.0.
+    #[arg(long)]
+    pub image: String,
+    /// Size ID. See `pms catalog sizes`.
+    #[arg(long)]
+    pub size: String,
+    /// Registry credential for a private image (ID or name).
+    #[arg(long)]
+    pub registry_credential: Option<String>,
+    /// Runtime. native needs a permission on your account.
+    #[arg(long, value_parser = ["gvisor", "native"])]
+    pub runtime: Option<String>,
+    #[command(flatten)]
+    pub env: EnvArgs,
+    #[command(flatten)]
+    pub wait: WaitArgs,
+}
+
+#[derive(Args)]
+pub struct EditContainerArgs {
+    pub container: String,
+    #[arg(long)]
+    pub image: Option<String>,
+    #[arg(long)]
+    pub size: Option<String>,
+    #[arg(long, value_parser = ["gvisor", "native"])]
+    pub runtime: Option<String>,
+    /// Registry credential (ID or name).
+    #[arg(long, conflicts_with = "no_registry_credential")]
+    pub registry_credential: Option<String>,
+    /// Remove the registry credential.
+    #[arg(long)]
+    pub no_registry_credential: bool,
+    /// With --env or --env-file: these variables replace ALL variables. Without them, the
+    /// variables stay as they are.
+    #[command(flatten)]
+    pub env: EnvArgs,
+    /// Remove all environment variables.
+    #[arg(long, conflicts_with_all = ["env", "env_file"])]
+    pub clear_env: bool,
+    #[command(flatten)]
+    pub wait: WaitArgs,
+}
+
+#[derive(Args)]
+pub struct LogsArgs {
+    pub container: String,
+    /// How many lines.
+    #[arg(long, default_value_t = 200, value_parser = clap::value_parser!(u32).range(1..=2000))]
+    pub tail: u32,
+    /// The run before the last restart. Use it after a crash.
+    #[arg(long)]
+    pub previous: bool,
+    /// Keep printing new lines. Checks every 5 seconds.
+    #[arg(short, long)]
+    pub follow: bool,
+}
+
+#[derive(Subcommand)]
+pub enum RegistryCmd {
+    /// List saved registry logins.
+    List,
+    /// Save a registry login. The token is read from a prompt or from standard input.
+    Add {
+        name: String,
+        /// Registry host, for example ghcr.io.
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        username: String,
+        /// Read the token from standard input.
+        #[arg(long)]
+        token_stdin: bool,
+    },
+    /// Delete a saved registry login (ID or name).
+    Delete { credential: String },
 }
