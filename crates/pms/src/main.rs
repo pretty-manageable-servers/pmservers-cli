@@ -1,5 +1,3 @@
-#![allow(dead_code)] // removed in the release phase, once every command uses the helpers
-
 mod cli;
 mod cloudflared;
 mod commands;
