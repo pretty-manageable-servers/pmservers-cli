@@ -68,3 +68,8 @@ impl Env {
 pub fn read(path: &Path) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
+
+pub fn project_json(id: &str, name: &str, role: &str) -> serde_json::Value {
+    json!({"id": id, "name": name, "region": "ca-tor-1", "role": role,
+           "created_at": "2026-10-09T10:00:00+00:00"})
+}

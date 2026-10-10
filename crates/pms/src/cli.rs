@@ -19,6 +19,10 @@ pub struct Cli {
     #[arg(short, long, global = true, env = "PMS_OUTPUT", value_enum, default_value_t = Format::Table)]
     pub output: Format,
 
+    /// Project ID or name. Default: the project set with `pms project use`.
+    #[arg(short, long, global = true, env = "PMS_PROJECT")]
+    pub project: Option<String>,
+
     /// Do not ask for confirmation.
     #[arg(short, long, global = true)]
     pub yes: bool,
@@ -37,6 +41,68 @@ pub enum Command {
     Whoami,
     /// Show sizes, images and AI models you can use.
     Catalog(CatalogArgs),
+    /// Projects.
+    #[command(subcommand)]
+    Project(ProjectCmd),
+    /// Members of the current project.
+    #[command(subcommand)]
+    Member(MemberCmd),
+    /// SSH public keys saved on your account.
+    #[command(subcommand, name = "ssh-key")]
+    SshKey(SshKeyCmd),
+}
+
+#[derive(Subcommand)]
+pub enum ProjectCmd {
+    /// List your projects.
+    List,
+    /// Make a project.
+    Create {
+        name: String,
+        /// Also make it the default project.
+        #[arg(long = "use")]
+        use_it: bool,
+    },
+    /// Show the current project.
+    Show,
+    /// Rename the current project.
+    Rename { name: String },
+    /// Delete the current project. It must have no resources.
+    Delete,
+    /// Save a default project (ID or name).
+    Use { project: String },
+    /// Show usage and limits of the current project.
+    Usage,
+    /// Leave the current project (members only).
+    Leave,
+}
+
+#[derive(Subcommand)]
+pub enum MemberCmd {
+    /// List the owner and the members.
+    List,
+    /// Add a member by email. A new email gets an invite.
+    Invite { email: String },
+    /// Remove a member by email or user ID.
+    Remove { member: String },
+}
+
+#[derive(Subcommand)]
+pub enum SshKeyCmd {
+    /// List saved keys.
+    List,
+    /// Save a public key. Reads standard input if no key or file is given.
+    Add {
+        name: String,
+        /// Path to a public key file, for example ~/.ssh/id_ed25519.pub.
+        #[arg(long, conflicts_with = "key")]
+        file: Option<std::path::PathBuf>,
+        /// The public key text.
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// Delete a saved key by ID.
+    Delete { id: String },
 }
 
 #[derive(Args)]
