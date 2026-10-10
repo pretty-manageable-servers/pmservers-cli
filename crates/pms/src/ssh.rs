@@ -24,7 +24,11 @@ pub fn proxy_command(cloudflared: &str, jump_host: &str, identity: Option<&Path>
         shell_quote(cloudflared),
         shell_quote(jump_host)
     );
-    let mut cmd = format!("ssh -o {}", shell_quote(&via_cloudflared));
+    // Trust the jump host key on first use. ssh cannot ask when it runs as a ProxyCommand. A changed key is still refused.
+    let mut cmd = format!(
+        "ssh -o {} -o StrictHostKeyChecking=accept-new",
+        shell_quote(&via_cloudflared)
+    );
     if let Some(id) = identity {
         cmd.push_str(&format!(
             " -i {} -o IdentitiesOnly=yes",
@@ -114,6 +118,11 @@ pub fn database_args(
     ];
     // The tunnel stays open for a long time. Find a dead connection.
     args.extend(["-o".to_owned(), "ServerAliveInterval=30".to_owned()]);
+    // Trust the jump host key on first use, so a run with no terminal works. A changed key is still refused.
+    args.extend([
+        "-o".to_owned(),
+        "StrictHostKeyChecking=accept-new".to_owned(),
+    ]);
     if let Some(id) = identity {
         args.push("-i".to_owned());
         args.push(id.to_string_lossy().into_owned());
@@ -199,7 +208,7 @@ mod tests {
     fn proxy_command_reaches_the_jump_host_through_cloudflared() {
         assert_eq!(
             proxy_command("cloudflared", "jump.example.org", None),
-            "ssh -o 'ProxyCommand=cloudflared access ssh --hostname jump.example.org' -W %h:%p -l jump jump.example.org"
+            "ssh -o 'ProxyCommand=cloudflared access ssh --hostname jump.example.org' -o StrictHostKeyChecking=accept-new -W %h:%p -l jump jump.example.org"
         );
     }
 
@@ -264,6 +273,7 @@ mod tests {
         let args = database_args(&database(), "/opt/cf", Some(Path::new("/k/id")), 6000).unwrap();
         assert_eq!(args[0], "-N");
         assert!(args.contains(&"ExitOnForwardFailure=yes".to_owned()));
+        assert!(args.contains(&"StrictHostKeyChecking=accept-new".to_owned()));
         assert!(args.contains(&"IdentitiesOnly=yes".to_owned()));
         assert!(args
             .contains(&"ProxyCommand=/opt/cf access ssh --hostname jump.example.org".to_owned()));
