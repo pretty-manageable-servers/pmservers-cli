@@ -67,6 +67,7 @@ pms access show | request <reason>
 pms container list | show | create [--port P ...] | edit [--port P ... | --clear-ports] | delete | start | stop | restart | logs [--previous] [--follow]
 pms registry-credential list | add <name> --host H --username U --token-stdin | delete <id>
 pms db list | show | create [--vector] | delete | vector on|off | reset-password
+pms db connect <db> [--port N] [-i KEY]   # a local port to the database; Ctrl-C stops
 pms ai-key list | show | create --model M --budget USD | edit | rotate | delete
 ```
 
@@ -78,6 +79,8 @@ Global options: `--api-url` (or `PMS_API_URL`, default `https://api.pmservers.or
 - `--wait` on create and on actions waits for the resource, using the event stream. `--timeout` sets the limit in seconds (default 600).
 - Secrets (the AI key secret, the database password and connection URL) print one time, as in the console. The API does not return them again.
 - `pms vm ssh` uses `ssh` with `cloudflared access ssh` as the proxy for the jump host. If `cloudflared` is not on `PATH`, `pms` asks, then downloads a pinned version into `~/.local/share/pms/bin` (the OS data folder on macOS) and checks its SHA-256 against a value pinned in `crates/pms/src/cloudflared.rs`. `--yes` skips the question. To bump the version, change `VERSION` and the four checksums, then run `cargo test -p pms -- --ignored real_downloads`.
+
+- `pms db connect <db>` opens `localhost:<port>` (default 5432) to a running database through the same SSH jump host, with `ssh -N -L`. It prints `postgres://app:<password>@localhost:<port>/app`: put the database password in place of `<password>` (the password is shown one time at create; `pms db reset-password` makes a new one). Nothing is public. You need a saved SSH key (`pms ssh-key add`) or a key that you gave to a VM; pass the private key with `-i` if ssh does not find it. All members of the project can connect. It needs `cloudflared` like `pms vm ssh`. The local port is on `127.0.0.1` only. Press Ctrl-C to close the tunnel.
 
 The session is kept in the OS keychain. If there is no keychain, it is kept in `~/.config/pms/credentials.json` with mode `0600`. Set `PMS_NO_KEYRING=1` to always use the file. `PMS_CONFIG_DIR` changes the config folder and `PMS_DATA_DIR` the data folder.
 
