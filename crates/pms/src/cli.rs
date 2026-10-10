@@ -132,10 +132,7 @@ pub struct LoginArgs {
     /// Sign in with email and password. The CLI asks for both.
     #[arg(long)]
     pub email: bool,
-    /// Listen on this port for the browser callback. Use it if Supabase does not allow a random port.
-    #[arg(long, value_name = "PORT", conflicts_with = "email")]
-    pub port: Option<u16>,
-    /// Print the sign-in URL and do not open the browser.
+    /// Print the sign-in URL and code without opening the browser.
     #[arg(long, conflicts_with = "email")]
     pub no_browser: bool,
 }

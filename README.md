@@ -26,7 +26,7 @@ cargo build --release
 
 ### Supabase settings
 
-`pms login` needs the Supabase project URL and the anon key. Both are public values. They are not in this repo, because we cannot check them from here.
+`pms login` uses the PMServers device login service. `pms login --email` uses the Supabase project URL and anon key. These are public values and are not stored in this repo.
 
 A release build must have them. Set them when you build:
 
@@ -86,9 +86,9 @@ Global options: `--api-url` (or `PMS_API_URL`, default `https://api.pmservers.or
 
 The session is kept in the OS keychain. If there is no keychain, it is kept in `~/.config/pms/credentials.json` with mode `0600`. Set `PMS_NO_KEYRING=1` to always use the file. `PMS_CONFIG_DIR` changes the config folder and `PMS_DATA_DIR` the data folder.
 
-### Browser login and the redirect URL
+### Device login
 
-`pms login` listens on `http://127.0.0.1:<random port>/callback`. The Supabase project must allow this redirect URL, for example with `http://127.0.0.1:*/**` in the redirect allow list. If it does not, use a fixed port that is on the list: `pms login --port 54321`. Or use `pms login --email`.
+`pms login` prints a short code and opens the verification page. You can also run it over SSH or in a container with `--no-browser`, then open the printed URL on another device. Codes expire after 10 minutes and can be used once. Set `PMS_AUTH_URL` to use a local auth service. `--port` was removed because login no longer listens for a browser callback.
 
 ## Develop
 

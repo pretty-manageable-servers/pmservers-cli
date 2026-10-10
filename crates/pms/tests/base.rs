@@ -223,16 +223,14 @@ fn logout_removes_the_session_even_without_the_anon_key() {
 }
 
 #[test]
-fn login_without_supabase_settings_names_the_variables() {
-    if option_env!("PMS_SUPABASE_URL").is_some() {
-        return;
-    }
+fn login_help_explains_device_login_options() {
     Env::new()
         .cmd("http://unused")
-        .arg("login")
+        .args(["login", "--help"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("PMS_SUPABASE_URL"));
+        .success()
+        .stdout(predicate::str::contains("--no-browser"))
+        .stdout(predicate::str::contains("--email"));
 }
 
 #[test]

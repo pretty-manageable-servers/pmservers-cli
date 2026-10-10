@@ -1,9 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rand::RngExt;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
-use url::Url;
 
 /// The URL and anon key are public values. A release build gets them from the environment at
 /// build time. A runtime variable with the same name wins.
@@ -88,27 +84,6 @@ impl TokenResponse {
     }
 }
 
-pub struct Pkce {
-    pub verifier: String,
-    pub challenge: String,
-}
-
-impl Pkce {
-    pub fn new() -> Self {
-        let bytes: [u8; 64] = rand::rng().random();
-        let verifier = URL_SAFE_NO_PAD.encode(bytes);
-        let challenge = challenge_for(&verifier);
-        Self {
-            verifier,
-            challenge,
-        }
-    }
-}
-
-pub fn challenge_for(verifier: &str) -> String {
-    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
-}
-
 pub struct Supabase {
     http: reqwest::Client,
     cfg: SupabaseConfig,
@@ -120,24 +95,6 @@ impl Supabase {
             http: reqwest::Client::new(),
             cfg,
         }
-    }
-
-    pub fn authorize_url(&self, redirect_to: &str, challenge: &str) -> Result<Url> {
-        let mut url = Url::parse(&format!("{}/auth/v1/authorize", self.cfg.url))?;
-        url.query_pairs_mut()
-            .append_pair("provider", "github")
-            .append_pair("redirect_to", redirect_to)
-            .append_pair("code_challenge", challenge)
-            .append_pair("code_challenge_method", "s256");
-        Ok(url)
-    }
-
-    pub async fn exchange_code(&self, code: &str, verifier: &str) -> Result<TokenResponse> {
-        self.token(
-            "pkce",
-            serde_json::json!({"auth_code": code, "code_verifier": verifier}),
-        )
-        .await
     }
 
     pub async fn password(&self, email: &str, password: &str) -> Result<TokenResponse> {
@@ -206,21 +163,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn challenge_matches_rfc7636_example() {
-        assert_eq!(
-            challenge_for("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
-            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-        );
-    }
-
-    #[test]
-    fn verifier_length_is_in_range() {
-        let p = Pkce::new();
-        assert!((43..=128).contains(&p.verifier.len()));
-        assert_eq!(p.challenge, challenge_for(&p.verifier));
-    }
-
-    #[test]
     fn runtime_env_beats_build_value() {
         let c = SupabaseConfig::from_sources(
             Some("https://run.example/".into()),
@@ -239,23 +181,6 @@ mod tests {
         assert!(
             SupabaseConfig::from_sources(Some("".into()), Some("k".into()), None, None).is_err()
         );
-    }
-
-    #[test]
-    fn authorize_url_has_pkce_params() {
-        let s = Supabase::new(SupabaseConfig {
-            url: "https://x.example".into(),
-            anon_key: "k".into(),
-        });
-        let url = s
-            .authorize_url("http://127.0.0.1:5000/callback", "abc")
-            .unwrap();
-        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
-        assert_eq!(url.path(), "/auth/v1/authorize");
-        assert_eq!(q["provider"], "github");
-        assert_eq!(q["redirect_to"], "http://127.0.0.1:5000/callback");
-        assert_eq!(q["code_challenge"], "abc");
-        assert_eq!(q["code_challenge_method"], "s256");
     }
 }
 
@@ -294,21 +219,6 @@ mod http_tests {
         let t = s.password("x@y.zz", "pw").await.unwrap();
         assert_eq!(t.expires_at(), 1893456000);
         assert_eq!(t.user.email.as_deref(), Some("x@y.zz"));
-    }
-
-    #[tokio::test]
-    async fn pkce_exchange_sends_code_and_verifier() {
-        let (server, s) = server().await;
-        Mock::given(method("POST"))
-            .and(path("/auth/v1/token"))
-            .and(query_param("grant_type", "pkce"))
-            .and(body_json(
-                json!({"auth_code": "c0de", "code_verifier": "ver"}),
-            ))
-            .respond_with(ResponseTemplate::new(200).set_body_json(tokens()))
-            .mount(&server)
-            .await;
-        s.exchange_code("c0de", "ver").await.unwrap();
     }
 
     #[tokio::test]

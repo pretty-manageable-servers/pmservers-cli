@@ -1,124 +1,85 @@
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use url::Url;
+use anyhow::{bail, Result};
 
 use crate::session::StoredSession;
-use crate::supabase::{Pkce, Supabase, SupabaseConfig};
+use crate::supabase::{Supabase, SupabaseConfig};
 
-const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Callback {
-    Code(String),
-    Failed(String),
+#[derive(serde::Deserialize)]
+struct DeviceStart {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    verification_uri_complete: String,
+    expires_in: u64,
+    interval: u64,
 }
 
-/// Read one HTTP request and return the callback, or None for any other path (a favicon request).
-pub async fn read_callback(stream: &mut TcpStream) -> Result<Option<Callback>> {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 1024];
-    while !buf.windows(4).any(|w| w == b"\r\n\r\n") && buf.len() < 8192 {
-        let n = stream.read(&mut chunk).await?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&chunk[..n]);
+#[derive(serde::Deserialize)]
+struct DeviceSession {
+    access_token: String,
+    refresh_token: String,
+    expires_at: i64,
+    supabase_url: String,
+    email: String,
+    user_id: String,
+}
+
+pub async fn device_login(auth_url: &str, open_browser: bool) -> Result<StoredSession> {
+    let http = reqwest::Client::new();
+    let start: DeviceStart = http.post(format!("{}/device", auth_url.trim_end_matches('/')))
+        .json(&serde_json::json!({"client_info": format!("pms {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS)}))
+        .send().await?.error_for_status()?.json().await?;
+    eprintln!(
+        "Open {} and enter code: {}",
+        start.verification_uri, start.user_code
+    );
+    if open_browser && open::that(&start.verification_uri_complete).is_err() {
+        eprintln!("Could not open the browser. Open the URL above yourself.");
     }
-    let head = String::from_utf8_lossy(&buf);
-    let target = head
-        .lines()
-        .next()
-        .and_then(|l| l.strip_prefix("GET "))
-        .and_then(|l| l.split_whitespace().next())
-        .unwrap_or("");
-    let url = Url::parse(&format!("http://127.0.0.1{target}"))?;
-    let (status, body, result) = if url.path() == "/callback" {
-        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
-        if let Some(code) = q.get("code") {
-            (
-                "200 OK",
-                "You are signed in. You can close this tab.",
-                Some(Callback::Code(code.clone())),
-            )
-        } else {
-            let why = q
-                .get("error_description")
-                .or_else(|| q.get("error"))
-                .cloned()
-                .unwrap_or_else(|| "no code in the callback".into());
-            (
-                "400 Bad Request",
-                "Sign-in failed. Go back to the terminal.",
-                Some(Callback::Failed(why)),
-            )
-        }
-    } else {
-        ("404 Not Found", "Not found.", None)
-    };
-    let page = format!(
-        "<!doctype html><meta charset=utf-8><title>pms</title><body style=\"font-family:sans-serif\"><p>{body}</p>"
-    );
-    let resp = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
-        page.len()
-    );
-    let _ = stream.write_all(resp.as_bytes()).await;
-    let _ = stream.shutdown().await;
-    Ok(result)
-}
-
-pub async fn wait_for_callback(listener: &TcpListener) -> Result<Callback> {
+    eprintln!("Waiting for sign-in...");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(start.expires_in);
+    let mut interval = start.interval.max(1);
     loop {
-        let (mut stream, _) = listener.accept().await?;
-        if let Some(cb) = read_callback(&mut stream).await.unwrap_or(None) {
-            return Ok(cb);
+        if tokio::time::Instant::now() >= deadline {
+            bail!("Device login expired. Run `pms login` again.");
         }
-    }
-}
-
-pub async fn browser_login(
-    cfg: SupabaseConfig,
-    port: Option<u16>,
-    open_browser: bool,
-) -> Result<StoredSession> {
-    let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(0)))
-        .await
-        .with_context(|| match port {
-            Some(p) => format!("cannot listen on 127.0.0.1:{p}"),
-            None => "cannot listen on 127.0.0.1".to_owned(),
-        })?;
-    let redirect = format!(
-        "http://127.0.0.1:{}/callback",
-        listener.local_addr()?.port()
-    );
-    let pkce = Pkce::new();
-    let supabase_url = cfg.url.clone();
-    let supabase = Supabase::new(cfg);
-    let url = supabase.authorize_url(&redirect, &pkce.challenge)?;
-
-    eprintln!("Open this URL in your browser to sign in with GitHub:\n\n  {url}\n");
-    if open_browser && open::that(url.as_str()).is_err() {
-        eprintln!("Could not open the browser. Open the URL yourself.");
-    }
-    eprintln!("Waiting for the sign-in (5 minutes)...");
-
-    let callback = tokio::time::timeout(LOGIN_TIMEOUT, wait_for_callback(&listener))
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "Timed out. If your browser went to the console instead of {redirect}, \
-                 Supabase does not allow this redirect URL. Use `pms login --port <port>` \
-                 with a URL that is on the allow list, or `pms login --email`."
-            )
-        })??;
-    match callback {
-        Callback::Failed(why) => bail!("sign-in failed: {why}"),
-        Callback::Code(code) => {
-            let resp = supabase.exchange_code(&code, &pkce.verifier).await?;
-            Ok(StoredSession::from_response(&resp, &supabase_url))
+        tokio::time::sleep(Duration::from_secs(interval)).await;
+        let response = http
+            .post(format!("{}/device/token", auth_url.trim_end_matches('/')))
+            .json(&serde_json::json!({"device_code": start.device_code}))
+            .send()
+            .await?;
+        let status = response.status();
+        let body: serde_json::Value = response.json().await.unwrap_or_default();
+        if status == reqwest::StatusCode::ACCEPTED {
+            continue;
+        }
+        if status.is_success() {
+            let session: DeviceSession = serde_json::from_value(body)?;
+            return Ok(StoredSession {
+                access_token: session.access_token,
+                refresh_token: session.refresh_token,
+                expires_at: session.expires_at,
+                supabase_url: session.supabase_url,
+                email: session.email,
+                user_id: session.user_id,
+                provider: "github".into(),
+            });
+        }
+        match body
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+        {
+            "authorization_pending" => continue,
+            "slow_down" => {
+                interval += 5;
+                continue;
+            }
+            "access_denied" => bail!("Device login was denied."),
+            "expired_token" => bail!("Device login expired. Run `pms login` again."),
+            _ => bail!("Device login failed ({status}): {body}"),
         }
     }
 }
@@ -134,94 +95,29 @@ pub async fn password_login(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    async fn request(path: &str) -> (Option<Callback>, String) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let path = path.to_owned();
-        let client = tokio::spawn(async move {
-            let mut s = TcpStream::connect(addr).await.unwrap();
-            s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
-                .await
-                .unwrap();
-            let mut out = String::new();
-            s.read_to_string(&mut out).await.unwrap();
-            out
-        });
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let cb = read_callback(&mut stream).await.unwrap();
-        (cb, client.await.unwrap())
-    }
-
-    #[tokio::test]
-    async fn callback_with_code() {
-        let (cb, resp) = request("/callback?code=abc%20d").await;
-        assert_eq!(cb, Some(Callback::Code("abc d".into())));
-        assert!(resp.starts_with("HTTP/1.1 200"));
-    }
-
-    #[tokio::test]
-    async fn callback_with_error() {
-        let (cb, resp) = request("/callback?error=access_denied&error_description=No+way").await;
-        assert_eq!(cb, Some(Callback::Failed("No way".into())));
-        assert!(resp.starts_with("HTTP/1.1 400"));
-    }
-
-    #[tokio::test]
-    async fn other_paths_are_ignored() {
-        let (cb, resp) = request("/favicon.ico").await;
-        assert_eq!(cb, None);
-        assert!(resp.starts_with("HTTP/1.1 404"));
-    }
-}
-
-#[cfg(test)]
 mod flow_tests {
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{body_partial_json, method, path, query_param};
+    use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
-    async fn browser_flow_exchanges_the_code() {
+    async fn device_flow_polls_and_returns_new_session() {
         let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/auth/v1/token"))
-            .and(query_param("grant_type", "pkce"))
-            .and(body_partial_json(json!({"auth_code": "abc"})))
+        Mock::given(method("POST")).and(path("/device"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "access_token": "a", "refresh_token": "r", "expires_in": 3600,
-                "user": {"id": "u1", "email": "x@y.zz", "app_metadata": {"provider": "github"}}
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-        let port = {
-            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap().port()
-        };
-        let cfg = SupabaseConfig {
-            url: server.uri(),
-            anon_key: "anon".into(),
-        };
-        let flow = tokio::spawn(browser_login(cfg, Some(port), false));
-        let mut stream = loop {
-            match TcpStream::connect(("127.0.0.1", port)).await {
-                Ok(s) => break s,
-                Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
-            }
-        };
-        stream
-            .write_all(b"GET /callback?code=abc HTTP/1.1\r\nHost: x\r\n\r\n")
-            .await
-            .unwrap();
-        let mut sink = String::new();
-        stream.read_to_string(&mut sink).await.unwrap();
-        let session = flow.await.unwrap().unwrap();
-        assert_eq!(session.provider, "github");
-        assert_eq!(session.email, "x@y.zz");
-        assert_eq!(session.supabase_url, server.uri());
+                "device_code":"opaque","user_code":"BCDF-GHJK","verification_uri":"https://auth.example/",
+                "verification_uri_complete":"https://auth.example/BCDF-GHJK","expires_in":30,"interval":1
+            }))).expect(1).mount(&server).await;
+        Mock::given(method("POST")).and(path("/device/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token":"access","refresh_token":"refresh","expires_at":1234,
+                "supabase_url":"https://project.example","email":"user@example.com","user_id":"user-1"
+            }))).expect(1).mount(&server).await;
+        let session = device_login(&server.uri(), false).await.unwrap();
+        assert_eq!(session.access_token, "access");
+        assert_eq!(session.refresh_token, "refresh");
+        assert_eq!(session.supabase_url, "https://project.example");
+        assert_eq!(session.email, "user@example.com");
     }
 }

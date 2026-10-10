@@ -11,7 +11,6 @@ use crate::session::{self, Saved};
 use crate::supabase::{Supabase, SupabaseConfig};
 
 pub async fn login(ctx: &Ctx, args: LoginArgs) -> Result<()> {
-    let cfg = SupabaseConfig::resolve()?;
     let session = if args.email {
         if !std::io::stdin().is_terminal() {
             bail!("`pms login --email` needs a terminal to ask for the password.");
@@ -22,9 +21,14 @@ pub async fn login(ctx: &Ctx, args: LoginArgs) -> Result<()> {
         let password = dialoguer::Password::new()
             .with_prompt("Password")
             .interact()?;
-        login::password_login(cfg, email.trim(), &password).await?
+        login::password_login(SupabaseConfig::resolve()?, email.trim(), &password).await?
     } else {
-        login::browser_login(cfg, args.port, !args.no_browser).await?
+        let auth_url = std::env::var("PMS_AUTH_URL")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| option_env!("PMS_AUTH_URL").map(str::to_owned))
+            .unwrap_or_else(|| "https://auth.pmservers.org".to_owned());
+        login::device_login(&auth_url, !args.no_browser).await?
     };
     let saved = session::save(&session)?;
     let place = match &saved {
