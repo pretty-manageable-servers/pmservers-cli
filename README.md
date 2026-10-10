@@ -40,7 +40,7 @@ The values are read with `option_env!`. Variables with the same names at run tim
 
 1. Set the version in the root `Cargo.toml` (`[workspace.package]`) and merge it.
 2. Set the repository variables `PMS_SUPABASE_URL` and `PMS_SUPABASE_ANON_KEY` (Settings, Secrets and variables, Actions). Secrets with the same names also work. The workflow stops if they are empty.
-3. Push a tag: `git tag v0.1.0 && git push origin v0.1.0`.
+3. Push a tag that matches the version in `Cargo.toml`: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 `.github/workflows/release.yml` runs the checks, builds the four targets, and makes the GitHub release with the archives and `SHA256SUMS`. The tag must match the version in `Cargo.toml`. A tag with a `-` (for example `v0.2.0-rc1`) makes a pre-release. The arm64 Linux binary is cross-compiled on an x86_64 runner.
 
