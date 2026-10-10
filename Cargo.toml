@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/pms-client", "crates/pms"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+repository = "https://github.com/pretty-manageable-servers/pmservers-cli"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
