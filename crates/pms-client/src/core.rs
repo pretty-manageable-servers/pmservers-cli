@@ -106,7 +106,7 @@ pub struct SshKey {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct Items<T> {
+pub struct Items<T> {
     pub items: Vec<T>,
 }
 

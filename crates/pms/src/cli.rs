@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 use crate::config::DEFAULT_API_URL;
 use crate::output::Format;
@@ -47,6 +47,13 @@ pub enum Command {
     /// Members of the current project.
     #[command(subcommand)]
     Member(MemberCmd),
+    /// Virtual machines.
+    #[command(subcommand)]
+    Vm(VmCmd),
+    /// Show recent events of the current project, or follow them live.
+    Events(EventsArgs),
+    /// Print an SSH config for the jump host and your VMs.
+    SshConfig(SshConfigArgs),
     /// SSH public keys saved on your account.
     #[command(subcommand, name = "ssh-key")]
     SshKey(SshKeyCmd),
@@ -130,4 +137,114 @@ pub enum CatalogKind {
 pub struct CatalogArgs {
     #[arg(value_enum, default_value_t = CatalogKind::All)]
     pub what: CatalogKind,
+}
+
+#[derive(Args, Clone)]
+pub struct WaitArgs {
+    /// Wait until the resource is ready.
+    #[arg(long)]
+    pub wait: bool,
+    /// Give up waiting after this many seconds.
+    #[arg(long, default_value_t = 600, requires = "wait")]
+    pub timeout: u64,
+}
+
+#[derive(Subcommand)]
+pub enum VmCmd {
+    /// List VMs.
+    List,
+    /// Make a VM.
+    Create(CreateVmArgs),
+    /// Show a VM (ID or name).
+    Show { vm: String },
+    /// Delete a VM.
+    Delete {
+        vm: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Start a stopped VM.
+    Start {
+        vm: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Stop a VM.
+    Stop {
+        vm: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Restart a VM.
+    Restart {
+        vm: String,
+        #[command(flatten)]
+        wait: WaitArgs,
+    },
+    /// Show VM metrics.
+    Metrics { vm: String },
+    /// Open the serial console. Press Ctrl-] to leave.
+    Console { vm: String },
+    /// Connect with SSH through the jump host. Installs cloudflared if it is missing.
+    Ssh(VmSshArgs),
+}
+
+#[derive(Args)]
+#[command(group(
+    ArgGroup::new("key").required(true).multiple(false)
+        .args(["ssh_key", "public_key_file", "generate_key"])
+))]
+pub struct CreateVmArgs {
+    pub name: String,
+    /// Size ID. See `pms catalog sizes`.
+    #[arg(long)]
+    pub size: String,
+    /// Image ID. See `pms catalog images`.
+    #[arg(long)]
+    pub image: String,
+    /// Disk size in GB.
+    #[arg(long, default_value_t = 10)]
+    pub disk_gb: u32,
+    /// Use a key saved on your account (ID or name).
+    #[arg(long)]
+    pub ssh_key: Option<String>,
+    /// Use the public key in this file.
+    #[arg(long, value_name = "FILE")]
+    pub public_key_file: Option<std::path::PathBuf>,
+    /// Make a new ed25519 key here. Only the public key is sent.
+    #[arg(long)]
+    pub generate_key: bool,
+    /// Where to write the generated private key. Default: ~/.ssh/pms_<name>_ed25519.
+    #[arg(long, value_name = "FILE", requires = "generate_key")]
+    pub key_out: Option<std::path::PathBuf>,
+    #[command(flatten)]
+    pub wait: WaitArgs,
+}
+
+#[derive(Args)]
+pub struct VmSshArgs {
+    pub vm: String,
+    /// Private key file to use.
+    #[arg(short = 'i', long)]
+    pub identity: Option<std::path::PathBuf>,
+    /// Login user. Default: the user of the image.
+    #[arg(short, long)]
+    pub user: Option<String>,
+    /// More arguments for ssh, after `--`. For example a command to run.
+    #[arg(last = true)]
+    pub extra: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct EventsArgs {
+    /// Keep the stream open and print new events.
+    #[arg(short, long)]
+    pub follow: bool,
+}
+
+#[derive(Args)]
+pub struct SshConfigArgs {
+    /// Jump host name. Default: the one the API reports for your VMs.
+    #[arg(long)]
+    pub jump_host: Option<String>,
 }

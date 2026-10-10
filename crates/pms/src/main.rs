@@ -1,13 +1,18 @@
 #![allow(dead_code)] // removed in the release phase, once every command uses the helpers
 
 mod cli;
+mod cloudflared;
 mod commands;
 mod config;
+mod console;
 mod ctx;
+mod keygen;
 mod login;
 mod output;
 mod session;
+mod ssh;
 mod supabase;
+mod wait;
 
 use clap::Parser;
 

@@ -73,3 +73,22 @@ pub fn project_json(id: &str, name: &str, role: &str) -> serde_json::Value {
     json!({"id": id, "name": name, "region": "ca-tor-1", "role": role,
            "created_at": "2026-10-09T10:00:00+00:00"})
 }
+
+pub fn vm_json(status: &str) -> serde_json::Value {
+    json!({"id": "vm_abc123def456", "name": "web", "status": status, "status_message": null,
+           "size": "pms-s-1", "image": "ubuntu-24.04", "disk_gb": 10, "private_ip": "10.0.0.5",
+           "ssh_host": "jump.example.org", "ssh_user": "ubuntu",
+           "created_at": "2026-10-09T10:00:00+00:00"})
+}
+
+pub const PRJ: &str = "prj_aaaaaaaaaaaa";
+
+/// A directory with scripts that stand in for programs. Put it first in PATH.
+#[cfg(unix)]
+pub fn fake_bin(dir: &Path, name: &str, script: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
