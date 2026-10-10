@@ -1,0 +1,118 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the binaries and make a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    env:
+      # Public values. Set them as repository variables (or secrets) of the same names.
+      PMS_SUPABASE_URL: ${{ vars.PMS_SUPABASE_URL || secrets.PMS_SUPABASE_URL }}
+      PMS_SUPABASE_ANON_KEY: ${{ vars.PMS_SUPABASE_ANON_KEY || secrets.PMS_SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the Supabase settings and the version
+        run: |
+          if [ -z "$PMS_SUPABASE_URL" ] || [ -z "$PMS_SUPABASE_ANON_KEY" ]; then
+            echo "::error::Set PMS_SUPABASE_URL and PMS_SUPABASE_ANON_KEY as repository variables or secrets. A release without them cannot sign in."
+            exit 1
+          fi
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not match the version $version in Cargo.toml."
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install the arm64 Linux cross compiler
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - run: cargo build --release --locked -p pms --target ${{ matrix.target }}
+
+      - name: Run the binary (native targets)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        run: target/${{ matrix.target }}/release/pms --version
+
+      - name: Package
+        run: |
+          name="pms-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          cp "target/${{ matrix.target }}/release/pms" README.md "$name/"
+          tar -czf "$name.tar.gz" "$name"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pms-${{ matrix.target }}
+          path: |
+            pms-*.tar.gz
+            pms-*.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Make the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          cat pms-*.tar.gz.sha256 > SHA256SUMS
+          flags=""
+          case "${GITHUB_REF_NAME}" in *-*) flags="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --title "pms ${GITHUB_REF_NAME}" --generate-notes $flags \
+            pms-*.tar.gz SHA256SUMS
