@@ -43,6 +43,12 @@ pub struct Container {
     /// The values are write-only. The API returns the names.
     #[serde(default)]
     pub env_names: Vec<String>,
+    /// Private TCP ports. Only containers in the same project can connect.
+    #[serde(default)]
+    pub ports: Vec<u16>,
+    /// The name other containers in the same project use, as `host:port`. Null if no ports.
+    #[serde(default)]
+    pub internal_host: Option<String>,
     /// provisioning, running, stopped, failed, deleting or unknown.
     pub status: String,
     #[serde(default)]
@@ -63,6 +69,8 @@ pub struct CreateContainer {
     pub env: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<u16>,
 }
 
 /// Fields that are `None` are not sent and stay as they are. `env` replaces all variables.
@@ -79,6 +87,27 @@ pub struct UpdateContainer {
     pub env: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
+    /// `Some(vec![])` removes all ports.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ports: Option<Vec<u16>>,
+}
+
+/// The most ports for one container.
+pub const MAX_PORTS: usize = 5;
+
+/// The same checks as the API: 1 to 5 ports are allowed, no repeats. Port 0 is not valid.
+pub fn check_ports(ports: &[u16]) -> std::result::Result<(), String> {
+    if ports.len() > MAX_PORTS {
+        return Err(format!("A container can have {MAX_PORTS} ports at most."));
+    }
+    if ports.contains(&0) {
+        return Err("A port must be from 1 to 65535.".into());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    if let Some(p) = ports.iter().find(|p| !seen.insert(**p)) {
+        return Err(format!("Port {p} is in the list two times."));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,5 +238,19 @@ impl Client {
 
     pub async fn delete_registry_credential(&self, id: &str) -> Result<()> {
         self.delete(&["v1", "registry-credentials", id]).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_ports;
+
+    #[test]
+    fn ports_are_checked_like_the_api() {
+        assert!(check_ports(&[]).is_ok());
+        assert!(check_ports(&[80, 8080, 9000, 5432, 6379]).is_ok());
+        assert!(check_ports(&[1, 2, 3, 4, 5, 6]).is_err());
+        assert!(check_ports(&[0]).is_err());
+        assert!(check_ports(&[80, 80]).is_err());
     }
 }

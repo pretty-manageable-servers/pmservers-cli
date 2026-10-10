@@ -64,7 +64,7 @@ pms ssh-config                    # the jump host block and one block for each V
 pms events [--follow]
 
 pms access show | request <reason>
-pms container list | show | create | edit | delete | start | stop | restart | logs [--previous] [--follow]
+pms container list | show | create [--port P ...] | edit [--port P ... | --clear-ports] | delete | start | stop | restart | logs [--previous] [--follow]
 pms registry-credential list | add <name> --host H --username U --token-stdin | delete <id>
 pms db list | show | create [--vector] | delete | vector on|off | reset-password
 pms ai-key list | show | create --model M --budget USD | edit | rotate | delete

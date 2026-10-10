@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
-use pms_client::containers::{Container, CreateContainer, LogLine, UpdateContainer};
+use pms_client::containers::{check_ports, Container, CreateContainer, LogLine, UpdateContainer};
 use pms_client::vms::PowerAction;
 use pms_client::Client;
 
@@ -56,6 +56,30 @@ fn details(c: &Container) {
         ("Size", c.size.clone()),
         ("Runtime", c.runtime.clone()),
         ("Registry credential", opt(&c.registry_credential_id)),
+        (
+            "Ports",
+            if c.ports.is_empty() {
+                "-".into()
+            } else {
+                c.ports
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+        ),
+        (
+            "Internal address",
+            match &c.internal_host {
+                Some(h) if !c.ports.is_empty() => c
+                    .ports
+                    .iter()
+                    .map(|p| format!("{h}:{p}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                _ => "-".into(),
+            },
+        ),
         (
             "Variables",
             if c.env_names.is_empty() {
@@ -141,6 +165,7 @@ fn env_given(env: &EnvArgs) -> bool {
 async fn create(ctx: &Ctx, a: CreateContainerArgs) -> Result<()> {
     let project = ctx.project_id().await?;
     let client = ctx.client()?;
+    check_ports(&a.ports).map_err(|e| anyhow!(e))?;
     let env = envfile::collect(&a.env.env, a.env.env_file.as_deref())?;
     let registry_credential_id = match &a.registry_credential {
         Some(w) => Some(credential_id(&client, w).await?),
@@ -157,6 +182,7 @@ async fn create(ctx: &Ctx, a: CreateContainerArgs) -> Result<()> {
                 registry_credential_id,
                 env,
                 runtime: a.runtime,
+                ports: a.ports,
             },
         )
         .await?;
@@ -177,6 +203,14 @@ async fn edit(ctx: &Ctx, a: EditContainerArgs) -> Result<()> {
         runtime: a.runtime,
         ..Default::default()
     };
+    if a.clear_ports {
+        update.ports = Some(Vec::new());
+    } else if !a.ports.is_empty() {
+        check_ports(&a.ports).map_err(|e| anyhow!(e))?;
+        update.ports = Some(a.ports);
+        // The new list replaces the old list.
+        eprintln!("Note: these ports replace all ports of the container.");
+    }
     if a.no_registry_credential {
         update.registry_credential_id = Some(None);
     } else if let Some(w) = &a.registry_credential {
@@ -194,8 +228,9 @@ async fn edit(ctx: &Ctx, a: EditContainerArgs) -> Result<()> {
         && update.runtime.is_none()
         && update.registry_credential_id.is_none()
         && update.env.is_none()
+        && update.ports.is_none()
     {
-        bail!("Nothing to change. Pass --image, --size, --runtime, --registry-credential, --env or --clear-env.");
+        bail!("Nothing to change. Pass --image, --size, --runtime, --port, --clear-ports, --registry-credential, --env or --clear-env.");
     }
     let mut c = client
         .update_container(&project, &current.id, &update)

@@ -77,7 +77,11 @@ async fn list_show_and_the_approval_error() {
         .args(["-p", PRJ, "container", "show", "api"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Variables:").and(predicate::str::contains("A, B")));
+        .stdout(
+            predicate::str::contains("Variables:")
+                .and(predicate::str::contains("A, B"))
+                .and(predicate::str::contains("api:8080")),
+        );
     let (api, env) = setup().await;
     Mock::given(method("GET"))
         .and(path(format!("/v1/projects/{PRJ}/containers")))
@@ -107,7 +111,7 @@ async fn create_with_env_file_credential_by_name_and_wait() {
         .and(body_json(
             json!({"name": "api", "type": "worker", "image": "ghcr.io/o/app:1",
                               "size": "pms-c-250m-512", "registry_credential_id": "reg_1",
-                              "env": {"A": "file", "B": "flag"}}),
+                              "env": {"A": "file", "B": "flag"}, "ports": [8080, 9000]}),
         ))
         .respond_with(ResponseTemplate::new(202).set_body_json(container_json("provisioning")))
         .expect(1)
@@ -143,6 +147,10 @@ async fn create_with_env_file_credential_by_name_and_wait() {
             "pms-c-250m-512",
         ])
         .args([
+            "--port",
+            "8080",
+            "--port",
+            "9000",
             "--registry-credential",
             "ghcr",
             "-e",
@@ -183,7 +191,44 @@ async fn edit_sends_only_what_changed_and_says_env_replaces_all() {
         .expect(1)
         .mount(&api)
         .await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/projects/{PRJ}/containers/{CTR}")))
+        .and(body_json(json!({"ports": [9000]})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(container_json("provisioning")))
+        .expect(1)
+        .mount(&api)
+        .await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/projects/{PRJ}/containers/{CTR}")))
+        .and(body_json(json!({"ports": []})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(container_json("provisioning")))
+        .expect(1)
+        .mount(&api)
+        .await;
     let base = ["-p", PRJ, "container", "edit", "api"];
+    env.cmd(&api.uri())
+        .args(base)
+        .args(["--port", "9000"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("replace all ports"));
+    env.cmd(&api.uri())
+        .args(base)
+        .arg("--clear-ports")
+        .assert()
+        .success();
+    env.cmd(&api.uri())
+        .args(base)
+        .args(["--port", "80", "--port", "80"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("two times"));
+    env.cmd(&api.uri())
+        .args(base)
+        .args(["--port", "80", "--clear-ports"])
+        .assert()
+        .failure()
+        .code(2);
     env.cmd(&api.uri())
         .args(base)
         .args(["--image", "ghcr.io/o/app:2"])

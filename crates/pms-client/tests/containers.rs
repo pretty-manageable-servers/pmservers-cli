@@ -9,7 +9,7 @@ use wiremock::{Mock, ResponseTemplate};
 fn container(status: &str) -> serde_json::Value {
     json!({"id": "ctr_abc", "name": "api", "type": "worker", "image": "ghcr.io/o/app:1",
            "size": "pms-c-250m-512", "runtime": "gvisor", "vcpu": 0.25, "memory_mib": 512,
-           "registry_credential_id": null, "env_names": ["A", "B"], "status": status,
+           "registry_credential_id": null, "env_names": ["A", "B"], "ports": [8080], "internal_host": "api", "status": status,
            "status_message": null, "created_at": "2026-10-10T10:00:00+00:00",
            "updated_at": "2026-10-10T10:00:00+00:00"})
 }
@@ -59,6 +59,8 @@ async fn list_and_403_for_an_unapproved_owner() {
     let list = client.containers("prj_a").await.unwrap();
     assert_eq!(list[0].kind, "worker");
     assert_eq!(list[0].env_names, ["A", "B"]);
+    assert_eq!(list[0].ports, [8080]);
+    assert_eq!(list[0].internal_host.as_deref(), Some("api"));
     assert_eq!(list[0].vcpu, Some(0.25));
     let err = client.containers("prj_a").await.unwrap_err();
     assert_eq!(err.status(), Some(403));
@@ -72,7 +74,7 @@ async fn create_body_matches_the_api() {
         .and(body_json(
             json!({"name": "api", "type": "worker", "image": "ghcr.io/o/app:1",
                               "size": "pms-c-250m-512", "registry_credential_id": "reg_1",
-                              "env": {"A": "1"}, "runtime": "native"}),
+                              "env": {"A": "1"}, "runtime": "native", "ports": [8080, 9000]}),
         ))
         .respond_with(ResponseTemplate::new(202).set_body_json(container("provisioning")))
         .expect(1)
@@ -89,6 +91,7 @@ async fn create_body_matches_the_api() {
                 registry_credential_id: Some("reg_1".into()),
                 env: [("A".to_string(), "1".to_string())].into(),
                 runtime: Some("native".into()),
+                ports: vec![8080, 9000],
             },
         )
         .await

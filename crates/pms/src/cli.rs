@@ -280,7 +280,7 @@ pub enum ContainerCmd {
     Create(CreateContainerArgs),
     /// Show a container (ID or name).
     Show { container: String },
-    /// Change the image, size, credential, variables or runtime. This redeploys the container.
+    /// Change the image, size, credential, variables, ports or runtime. This redeploys the container.
     Edit(EditContainerArgs),
     /// Delete a container.
     Delete {
@@ -335,6 +335,10 @@ pub struct CreateContainerArgs {
     /// Runtime. native needs a permission on your account.
     #[arg(long, value_parser = ["gvisor", "native"])]
     pub runtime: Option<String>,
+    /// A private TCP port, 1 to 65535. Repeat for more (5 at most). Only containers in the same
+    /// project can connect, as NAME:PORT.
+    #[arg(long = "port", value_name = "PORT", value_parser = clap::value_parser!(u16).range(1..))]
+    pub ports: Vec<u16>,
     #[command(flatten)]
     pub env: EnvArgs,
     #[command(flatten)]
@@ -350,6 +354,12 @@ pub struct EditContainerArgs {
     pub size: Option<String>,
     #[arg(long, value_parser = ["gvisor", "native"])]
     pub runtime: Option<String>,
+    /// The private TCP ports. These ports replace ALL ports. Repeat for more (5 at most).
+    #[arg(long = "port", value_name = "PORT", value_parser = clap::value_parser!(u16).range(1..), conflicts_with = "clear_ports")]
+    pub ports: Vec<u16>,
+    /// Remove all ports.
+    #[arg(long)]
+    pub clear_ports: bool,
     /// Registry credential (ID or name).
     #[arg(long, conflicts_with = "no_registry_credential")]
     pub registry_credential: Option<String>,
