@@ -212,3 +212,18 @@ async fn ai_key_lifecycle() {
     );
     client.delete_ai_key("prj_a", "key_abc").await.unwrap();
 }
+
+#[tokio::test]
+async fn list_accepts_null_used_bytes() {
+    let (server, client) = common::setup().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/projects/prj_a/databases"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"items": [db(json!({"used_bytes": null}))]})),
+        )
+        .mount(&server)
+        .await;
+    let list = client.databases("prj_a").await.unwrap();
+    assert_eq!(list[0].used_bytes, None);
+}

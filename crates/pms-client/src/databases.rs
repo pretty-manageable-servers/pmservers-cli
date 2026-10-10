@@ -23,7 +23,9 @@ pub struct Database {
     pub port: u16,
     pub database: String,
     pub user: String,
-    pub used_bytes: u64,
+    /// `null` while the database is provisioning.
+    #[serde(default)]
+    pub used_bytes: Option<u64>,
     /// The limit is for all databases of the account together.
     pub storage_limit_bytes: u64,
     pub created_at: String,

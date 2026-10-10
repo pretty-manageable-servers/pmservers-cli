@@ -42,6 +42,10 @@ fn mib(bytes: u64) -> String {
     format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0))
 }
 
+fn used(bytes: Option<u64>) -> String {
+    bytes.map_or_else(|| "-".into(), mib)
+}
+
 fn details(d: &Database) {
     let mut rows = vec![
         ("ID", d.id.clone()),
@@ -58,7 +62,7 @@ fn details(d: &Database) {
             "Storage",
             format!(
                 "{} used of {} (all databases of the account)",
-                mib(d.used_bytes),
+                used(d.used_bytes),
                 mib(d.storage_limit_bytes)
             ),
         ),
@@ -97,7 +101,7 @@ async fn list(ctx: &Ctx) -> Result<()> {
                         status_text(&d.status, &d.status_message),
                         d.size.clone(),
                         if d.vector { "on".into() } else { "off".into() },
-                        format!("{} / {}", mib(d.used_bytes), mib(d.storage_limit_bytes)),
+                        format!("{} / {}", used(d.used_bytes), mib(d.storage_limit_bytes)),
                         ts(&d.created_at),
                     ]
                 })
