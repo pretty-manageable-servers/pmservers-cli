@@ -5,7 +5,7 @@ members = ["crates/pms-client", "crates/pms"]
 [workspace.package]
 version = "0.1.1"
 edition = "2021"
-license = "UNLICENSED"
+license = "MIT"
 publish = false
 repository = "https://github.com/pretty-manageable-servers/pmservers-cli"
 

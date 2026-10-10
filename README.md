@@ -2,11 +2,11 @@
 
 `pms` is the command line tool for PMServers. It does what the console does: projects, VMs, containers, databases and AI keys.
 
-This repo is private for now. Do not put internal host names or secrets in it.
+This repo is open source under the MIT license. Do not put internal host names or secrets in it.
 
 ## Install
 
-Release binaries are on the GitHub releases page of this repo, for macOS (arm64, x86_64) and Linux (x86_64, arm64). Only members of the organization can download them for now. Public downloads come when the repo is open source.
+Release binaries are on the GitHub releases page of this repo, for macOS (arm64, x86_64) and Linux (x86_64, arm64).
 
 ```sh
 gh release download --repo pretty-manageable-servers/pmservers-cli --pattern 'pms-*-aarch64-apple-darwin.tar.gz'
