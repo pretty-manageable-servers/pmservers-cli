@@ -244,7 +244,7 @@ async fn edit_sends_only_what_changed_and_says_env_replaces_all() {
         .args(["-e", "X=1"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("replace all variables"));
+        .stderr(predicate::str::contains("--env replaces all variables"));
     env.cmd(&api.uri())
         .args(base)
         .assert()
@@ -253,6 +253,48 @@ async fn edit_sends_only_what_changed_and_says_env_replaces_all() {
     env.cmd(&api.uri())
         .args(base)
         .args(["--clear-env", "-e", "X=1"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_set_env_and_unset_env_send_only_env_set_and_env_unset() {
+    let (api, env) = setup().await;
+    mount_list(&api, "running").await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/projects/{PRJ}/containers/{CTR}")))
+        .and(body_json(
+            json!({"env_set": {"B": "20", "D": "4"}, "env_unset": ["C"]}),
+        ))
+        .respond_with(ResponseTemplate::new(202).set_body_json(container_json("provisioning")))
+        .expect(1)
+        .mount(&api)
+        .await;
+    env.cmd(&api.uri())
+        .args(["-p", PRJ, "container", "edit", "api"])
+        .args(["--set-env", "B=20", "--set-env", "D=4", "--unset-env", "C"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("replaces all").not());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_set_env_conflicts_with_env() {
+    let (api, env) = setup().await;
+    let base = ["-p", PRJ, "container", "edit", "api"];
+    for other in [["--env", "X=1"], ["--env-file", "x.env"]] {
+        env.cmd(&api.uri())
+            .args(base)
+            .args(["--set-env", "A=1"])
+            .args(other)
+            .assert()
+            .failure()
+            .code(2);
+    }
+    env.cmd(&api.uri())
+        .args(base)
+        .args(["--unset-env", "A", "--clear-env"])
         .assert()
         .failure()
         .code(2);

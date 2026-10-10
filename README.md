@@ -65,6 +65,8 @@ pms events [--follow]
 
 pms access show | request <reason>
 pms container list | show | create [--port P ...] | edit [--port P ... | --clear-ports] | delete | start | stop | restart | logs [--previous] [--follow]
+pms container edit <name> --set-env B=20 --set-env D=4 --unset-env C   # change only these variables
+pms container edit <name> --env A=1                                    # replaces ALL variables
 pms registry-credential list | add <name> --host H --username U --token-stdin | delete <id>
 pms db list | show | create [--vector] | delete | vector on|off | reset-password
 pms db connect <db> [--port N] [-i KEY]   # a local port to the database; Ctrl-C stops

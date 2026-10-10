@@ -166,7 +166,7 @@ async fn create(ctx: &Ctx, a: CreateContainerArgs) -> Result<()> {
     let project = ctx.project_id().await?;
     let client = ctx.client()?;
     check_ports(&a.ports).map_err(|e| anyhow!(e))?;
-    let env = envfile::collect(&a.env.env, a.env.env_file.as_deref())?;
+    let env = envfile::collect("--env", &a.env.env, a.env.env_file.as_deref())?;
     let registry_credential_id = match &a.registry_credential {
         Some(w) => Some(credential_id(&client, w).await?),
         None => None,
@@ -219,9 +219,23 @@ async fn edit(ctx: &Ctx, a: EditContainerArgs) -> Result<()> {
     if a.clear_env {
         update.env = Some(BTreeMap::new());
     } else if env_given(&a.env) {
-        update.env = Some(envfile::collect(&a.env.env, a.env.env_file.as_deref())?);
-        // Values are write-only, so a partial change is not possible.
-        eprintln!("Note: these variables replace all variables of the container.");
+        update.env = Some(envfile::collect(
+            "--env",
+            &a.env.env,
+            a.env.env_file.as_deref(),
+        )?);
+        // Values are write-only, so --env cannot keep the old values of other variables.
+        eprintln!("Note: --env replaces all variables. Use --set-env to change only some.");
+    }
+    if !a.set_env.is_empty() || a.set_env_file.is_some() {
+        update.env_set = Some(envfile::collect(
+            "--set-env",
+            &a.set_env,
+            a.set_env_file.as_deref(),
+        )?);
+    }
+    if !a.unset_env.is_empty() {
+        update.env_unset = Some(a.unset_env);
     }
     if update.image.is_none()
         && update.size.is_none()
@@ -229,8 +243,10 @@ async fn edit(ctx: &Ctx, a: EditContainerArgs) -> Result<()> {
         && update.registry_credential_id.is_none()
         && update.env.is_none()
         && update.ports.is_none()
+        && update.env_set.is_none()
+        && update.env_unset.is_none()
     {
-        bail!("Nothing to change. Pass --image, --size, --runtime, --port, --clear-ports, --registry-credential, --env or --clear-env.");
+        bail!("Nothing to change. Pass --image, --size, --runtime, --port, --clear-ports, --registry-credential, --env, --clear-env, --set-env or --unset-env.");
     }
     let mut c = client
         .update_container(&project, &current.id, &update)
