@@ -9,6 +9,7 @@ mod member;
 mod project;
 mod registry;
 mod ssh_key;
+mod token;
 mod vm;
 
 use anyhow::Result;
@@ -33,5 +34,6 @@ pub async fn run(ctx: &Ctx, command: Command) -> Result<()> {
         Command::Db(c) => db::run(ctx, c).await,
         Command::AiKey(c) => ai_key::run(ctx, c).await,
         Command::SshKey(c) => ssh_key::run(ctx, c).await,
+        Command::Token(c) => token::run(ctx, c).await,
     }
 }

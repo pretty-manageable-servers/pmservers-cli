@@ -2,7 +2,7 @@ use std::io::IsTerminal;
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{anyhow, bail, Result};
-use pms_client::Client;
+use pms_client::{Client, StaticToken, TokenSource};
 use serde::Serialize;
 
 use crate::config::Config;
@@ -36,9 +36,15 @@ impl Ctx {
         if let Some(c) = self.client.get() {
             return Ok(c.clone());
         }
-        let session =
-            session::load()?.ok_or_else(|| anyhow!("You are not signed in. Run `pms login`."))?;
-        let client = Client::new(&self.api_url, Arc::new(SessionTokens::new(session)))?;
+        let tokens: Arc<dyn TokenSource> = match session::env_token() {
+            Some(token) => Arc::new(StaticToken(token)),
+            None => {
+                let session = session::load()?
+                    .ok_or_else(|| anyhow!("You are not signed in. Run `pms login`."))?;
+                Arc::new(SessionTokens::new(session))
+            }
+        };
+        let client = Client::new(&self.api_url, tokens)?;
         Ok(self.client.get_or_init(|| client).clone())
     }
 

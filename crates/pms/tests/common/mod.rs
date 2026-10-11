@@ -59,6 +59,7 @@ impl Env {
             .env("PMS_API_URL", api_url)
             .env_remove("PMS_PROJECT")
             .env_remove("PMS_OUTPUT")
+            .env_remove("PMS_TOKEN")
             .env_remove("PMS_SUPABASE_URL")
             .env_remove("PMS_SUPABASE_ANON_KEY");
         cmd

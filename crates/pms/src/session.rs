@@ -16,6 +16,14 @@ const KEYRING_USER: &str = "session";
 /// Refresh this long before the token ends, so that a request does not race the expiry.
 const REFRESH_MARGIN: i64 = 60;
 
+/// `PMS_TOKEN`, an API token. It wins over the saved session and the keyring. Empty means unset.
+pub fn env_token() -> Option<String> {
+    std::env::var("PMS_TOKEN")
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+}
+
 pub fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
