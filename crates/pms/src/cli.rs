@@ -336,6 +336,15 @@ pub struct CreateContainerArgs {
     /// project can connect, as NAME:PORT.
     #[arg(long = "port", value_name = "PORT", value_parser = clap::value_parser!(u16).range(1..))]
     pub ports: Vec<u16>,
+    /// Attach a remotely managed Cloudflare Tunnel to this declared port.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    pub tunnel_port: Option<u16>,
+    /// Read the connector token from a private file (mode 0600 or stricter).
+    #[arg(long, value_name = "FILE", conflicts_with = "tunnel_token_stdin")]
+    pub tunnel_token_file: Option<std::path::PathBuf>,
+    /// Read the connector token from standard input.
+    #[arg(long, conflicts_with = "tunnel_token_file")]
+    pub tunnel_token_stdin: bool,
     #[command(flatten)]
     pub env: EnvArgs,
     #[command(flatten)]
@@ -357,6 +366,18 @@ pub struct EditContainerArgs {
     /// Remove all ports.
     #[arg(long)]
     pub clear_ports: bool,
+    /// Change the attached tunnel's origin port.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..), conflicts_with = "detach_tunnel")]
+    pub tunnel_port: Option<u16>,
+    /// Replace the connector token from a private file (mode 0600 or stricter).
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["tunnel_token_stdin", "detach_tunnel"])]
+    pub tunnel_token_file: Option<std::path::PathBuf>,
+    /// Replace the connector token from standard input.
+    #[arg(long, conflicts_with_all = ["tunnel_token_file", "detach_tunnel"])]
+    pub tunnel_token_stdin: bool,
+    /// Remove the connector and encrypted token.
+    #[arg(long, conflicts_with_all = ["tunnel_port", "tunnel_token_file", "tunnel_token_stdin"])]
+    pub detach_tunnel: bool,
     /// Registry credential (ID or name).
     #[arg(long, conflicts_with = "no_registry_credential")]
     pub registry_credential: Option<String>,

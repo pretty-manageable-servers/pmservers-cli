@@ -92,6 +92,8 @@ async fn create_body_matches_the_api() {
                 env: [("A".to_string(), "1".to_string())].into(),
                 runtime: Some("native".into()),
                 ports: vec![8080, 9000],
+                tunnel_port: None,
+                tunnel_token: None,
             },
         )
         .await
