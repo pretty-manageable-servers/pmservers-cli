@@ -55,6 +55,7 @@ pms catalog [sizes|images|models]
 pms project list | create <name> [--use] | show | rename <name> | delete | use <project> | usage | leave
 pms member list | invite <email> | remove <email|user-id>
 pms ssh-key list | add <name> [--file F | --key K] | delete <id>
+pms token list | create --name <name> [--expires Nd|never] | revoke <token-id>
 
 pms vm list | show <vm> | delete <vm> | start|stop|restart <vm> | metrics <vm>
 pms vm create <name> --size S --image I [--disk-gb N] (--ssh-key K | --public-key-file F | --generate-key [--key-out F]) [--wait]
@@ -91,6 +92,40 @@ The session is kept in the OS keychain. If there is no keychain, it is kept in `
 ### Device login
 
 `pms login` prints a short code and opens the verification page. You can also run it over SSH or in a container with `--no-browser`, then open the printed URL on another device. Codes expire after 10 minutes and can be used once. Set `PMS_AUTH_URL` to use a local auth service. `--port` was removed because login no longer listens for a browser callback.
+
+## API tokens and CI
+
+An API token lets a script or CI job use one project. It is not a sign-in.
+
+1. Make a token for the project. It is shown one time, so save it now as a secret in your CI settings. Use `--expires` to set a lifetime of 1 to 365 days. The default is `never`.
+
+   ```sh
+   pms token create --project slop --name ci --expires 90d
+   ```
+
+   Use `-o json` to read the token in a script: `pms -o json token create --project slop --name ci | jq -r .token`.
+
+2. List or revoke tokens with `pms token list --project slop` and `pms token revoke --project slop <token-id>`. Revoke a token that leaks. A project can have 20 active tokens.
+
+3. Set `PMS_TOKEN` to the token. When it is set, `pms` uses it instead of the saved session and the keyring. `pms` never tries to refresh a token. Set the project too, with `PMS_PROJECT` or `--project`.
+
+   ```yaml
+   env:
+     PMS_TOKEN: ${{ secrets.PMS_TOKEN }}
+     PMS_PROJECT: slop
+   steps:
+     - run: pms whoami
+   ```
+
+A token works for the management API of its project only. The API refuses these for a token: token management, SSH keys, members, AI keys, project create, change and delete, account access, registry credential changes, and admin. Then `pms` shows the API message. Bad, revoked and expired tokens get `The API token is not valid.`. Too many bad checks from one network give a `429` for 10 minutes.
+
+For sandboxes, use the same token as the E2B API key:
+
+```sh
+E2B_API_KEY=<token>
+E2B_API_URL=https://api.pmservers.org/sandboxes
+E2B_SANDBOX_URL=https://sandbox.pmservers.org
+```
 
 ## Develop
 

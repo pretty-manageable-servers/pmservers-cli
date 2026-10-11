@@ -72,6 +72,55 @@ pub enum Command {
     /// SSH public keys saved on your account.
     #[command(subcommand, name = "ssh-key")]
     SshKey(SshKeyCmd),
+    /// API tokens for scripts and CI. Set PMS_TOKEN to sign in with one.
+    #[command(subcommand)]
+    Token(TokenCmd),
+}
+
+#[derive(Subcommand)]
+pub enum TokenCmd {
+    /// List the API tokens of the project.
+    List,
+    /// Make a token for the project. The token is shown one time.
+    Create {
+        /// A name for the token, for example ci.
+        #[arg(long)]
+        name: String,
+        /// How long the token lasts: 1d to 365d, or never.
+        #[arg(long, value_name = "Nd|never", default_value = "never", value_parser = parse_expiry)]
+        expires: Expiry,
+    },
+    /// Revoke a token by ID. Anything that uses it stops working.
+    Revoke { token_id: String },
+}
+
+/// The lifetime of an API token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Expiry {
+    Never,
+    Days(u32),
+}
+
+impl Expiry {
+    /// `None` is never. The API reads `null` as never.
+    pub fn days(self) -> Option<u32> {
+        match self {
+            Expiry::Never => None,
+            Expiry::Days(n) => Some(n),
+        }
+    }
+}
+
+fn parse_expiry(text: &str) -> Result<Expiry, String> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("never") {
+        return Ok(Expiry::Never);
+    }
+    text.strip_suffix('d')
+        .and_then(|n| n.parse::<u32>().ok())
+        .filter(|n| (1..=365).contains(n))
+        .map(Expiry::Days)
+        .ok_or_else(|| format!("{text:?} is not valid. Use 1d to 365d, or never."))
 }
 
 #[derive(Subcommand)]
