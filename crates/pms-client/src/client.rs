@@ -14,14 +14,23 @@ pub trait TokenSource: Send + Sync {
     async fn access_token(&self) -> Result<String>;
     /// Called once after a 401. Return a new token, or an error if the session is over.
     async fn refresh(&self) -> Result<String>;
+    /// False for a token that cannot be renewed (an API token). A 401 then shows the API's message.
+    fn can_refresh(&self) -> bool {
+        true
+    }
 }
 
+/// A token that cannot be renewed, such as an API token from `PMS_TOKEN`.
 pub struct StaticToken(pub String);
 
 #[async_trait]
 impl TokenSource for StaticToken {
     async fn access_token(&self) -> Result<String> {
         Ok(self.0.clone())
+    }
+
+    fn can_refresh(&self) -> bool {
+        false
     }
 
     async fn refresh(&self) -> Result<String> {
@@ -78,7 +87,7 @@ impl Client {
             }
             let resp = req.send().await?;
             let status = resp.status();
-            if status == StatusCode::UNAUTHORIZED && !retried {
+            if status == StatusCode::UNAUTHORIZED && !retried && self.tokens.can_refresh() {
                 retried = true;
                 token = self.tokens.refresh().await?;
                 continue;
