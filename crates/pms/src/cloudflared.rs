@@ -1,4 +1,4 @@
-//! Find `cloudflared`, or install a pinned copy for `pms vm ssh`.
+//! Find `cloudflared`, or install a pinned copy for `pms db connect`.
 //!
 //! The version and the SHA-256 of each release asset are pinned here. Bump them on purpose.
 //! The checksums were computed from the downloads of the GitHub release

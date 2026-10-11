@@ -3,8 +3,9 @@ use std::io::Read;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
-use pms_client::containers::{check_ports, Container, CreateContainer, LogLine, UpdateContainer};
-use pms_client::vms::PowerAction;
+use pms_client::containers::{
+    check_ports, Container, CreateContainer, LogLine, PowerAction, UpdateContainer,
+};
 use pms_client::Client;
 
 use crate::cli::{

@@ -9,7 +9,7 @@ use wiremock::{Mock, ResponseTemplate};
 
 fn event(id: &str, message: &str) -> serde_json::Value {
     json!({"id": id, "time": "2026-10-10T10:00:00+00:00", "level": "success",
-           "resource_id": "vm_abc", "resource_name": "web", "message": message,
+           "resource_id": "ctr_abc", "resource_name": "web", "message": message,
            "project_id": "prj_a"})
 }
 
@@ -30,13 +30,13 @@ async fn list_events() {
         .and(path("/v1/projects/prj_a/events"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
             {"id": "evt_2", "time": "2026-10-10T10:01:00+00:00", "level": "info",
-             "resource_id": "vm_abc", "resource_name": "web", "message": "Starting VM"}
+             "resource_id": "ctr_abc", "resource_name": "web", "message": "Starting container"}
         ]})))
         .mount(&server)
         .await;
     let events = client.events("prj_a").await.unwrap();
     assert_eq!(events[0].project_id, None);
-    assert_eq!(events[0].message, "Starting VM");
+    assert_eq!(events[0].message, "Starting container");
 }
 
 #[tokio::test]
@@ -53,7 +53,7 @@ async fn follower_reconnects_with_last_event_id() {
         .and(query_param_is_missing("last_event_id"))
         .respond_with(stream_response(format!(
             ": connected\n\n{}",
-            sse("evt_1", "Creating VM")
+            sse("evt_1", "Creating container")
         )))
         .expect(1)
         .mount(&server)
@@ -61,7 +61,7 @@ async fn follower_reconnects_with_last_event_id() {
     Mock::given(method("GET"))
         .and(path("/v1/events/stream"))
         .and(query_param("last_event_id", "evt_1"))
-        .respond_with(stream_response(sse("evt_2", "VM running")))
+        .respond_with(stream_response(sse("evt_2", "Container running")))
         .expect(1)
         .mount(&server)
         .await;
@@ -70,7 +70,7 @@ async fn follower_reconnects_with_last_event_id() {
     // The first stream ended. The follower asks for what it missed.
     let second = follower.next().await.unwrap();
     assert_eq!(second.id, "evt_2");
-    assert_eq!(second.message, "VM running");
+    assert_eq!(second.message, "Container running");
     assert_eq!(follower.last_event_id(), Some("evt_2"));
 }
 

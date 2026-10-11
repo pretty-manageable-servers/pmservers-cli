@@ -65,7 +65,7 @@ async fn delete_project_conflict_message() {
         .and(path("/v1/projects/prj_a"))
         .respond_with(ResponseTemplate::new(409).set_body_json(json!({"error": {
             "code": "conflict",
-            "message": "Delete the VMs, containers, databases and AI keys of this project first."}})))
+            "message": "Delete the containers, databases and AI keys of this project first."}})))
         .mount(&server)
         .await;
     let err = client.delete_project("prj_a").await.unwrap_err();
@@ -81,7 +81,6 @@ async fn usage_shape() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "vcpu": {"used": 1.25, "limit": 2, "series": zeros},
             "memory_gib": {"used": 2.5, "limit": 4, "series": zeros},
-            "storage_gb": {"used": 10, "limit": 20, "series": zeros},
             "ai_spend_usd": {"used": 0.5, "limit": 5.0, "series": zeros}
         })))
         .mount(&server)

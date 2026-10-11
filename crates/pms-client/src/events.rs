@@ -243,7 +243,7 @@ mod tests {
 
     fn event_json(id: &str) -> String {
         format!(
-            r#"{{"id":"{id}","time":"2026-10-10T10:00:00+00:00","level":"info","resource_id":"vm_1","resource_name":"web","message":"Creating VM","project_id":"prj_1"}}"#
+            r#"{{"id":"{id}","time":"2026-10-10T10:00:00+00:00","level":"info","resource_id":"ctr_1","resource_name":"web","message":"Creating container","project_id":"prj_1"}}"#
         )
     }
 
