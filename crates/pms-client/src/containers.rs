@@ -74,6 +74,7 @@ pub struct CreateContainer {
 }
 
 /// Fields that are `None` are not sent and stay as they are. `env` replaces all variables.
+/// `env_set` and `env_unset` change only the named variables. Do not send `env` with them.
 /// `registry_credential_id: Some(None)` removes the credential.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct UpdateContainer {
@@ -85,6 +86,10 @@ pub struct UpdateContainer {
     pub registry_credential_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_set: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_unset: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
     /// `Some(vec![])` removes all ports.

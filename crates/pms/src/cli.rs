@@ -366,13 +366,34 @@ pub struct EditContainerArgs {
     /// Remove the registry credential.
     #[arg(long)]
     pub no_registry_credential: bool,
-    /// With --env or --env-file: these variables replace ALL variables. Without them, the
-    /// variables stay as they are.
+    /// With --env or --env-file: these variables replace ALL variables. To change only some,
+    /// use --set-env and --unset-env. Without them, the variables stay as they are.
     #[command(flatten)]
     pub env: EnvArgs,
     /// Remove all environment variables.
     #[arg(long, conflicts_with_all = ["env", "env_file"])]
     pub clear_env: bool,
+    /// Add or change one variable, KEY=VALUE. Repeat for more. The other variables stay.
+    #[arg(
+        long,
+        value_name = "KEY=VALUE",
+        conflicts_with_all = ["env", "env_file", "clear_env"]
+    )]
+    pub set_env: Vec<String>,
+    /// Like --set-env, but read the variables from a file with KEY=VALUE lines.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with_all = ["env", "env_file", "clear_env"]
+    )]
+    pub set_env_file: Option<std::path::PathBuf>,
+    /// Remove one variable by name. Repeat for more. The other variables stay.
+    #[arg(
+        long,
+        value_name = "KEY",
+        conflicts_with_all = ["env", "env_file", "clear_env"]
+    )]
+    pub unset_env: Vec<String>,
     #[command(flatten)]
     pub wait: WaitArgs,
 }

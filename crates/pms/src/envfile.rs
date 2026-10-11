@@ -28,8 +28,13 @@ pub fn parse_lines(text: &str) -> Result<BTreeMap<String, String>> {
     Ok(vars)
 }
 
-/// The variables from `--env-file` first, then `--env`. The later one wins.
-pub fn collect(pairs: &[String], file: Option<&Path>) -> Result<BTreeMap<String, String>> {
+/// The variables from the file first, then the pairs. The later one wins.
+/// `flag` names the pairs flag in errors, for example `--env` or `--set-env`.
+pub fn collect(
+    flag: &str,
+    pairs: &[String],
+    file: Option<&Path>,
+) -> Result<BTreeMap<String, String>> {
     let mut vars = match file {
         Some(path) => {
             let text = std::fs::read_to_string(path)
@@ -40,7 +45,7 @@ pub fn collect(pairs: &[String], file: Option<&Path>) -> Result<BTreeMap<String,
     };
     for pair in pairs {
         let Some((key, value)) = pair.split_once('=') else {
-            bail!("--env {pair:?}: expected KEY=VALUE");
+            bail!("{flag} {pair:?}: expected KEY=VALUE");
         };
         vars.insert(key.to_owned(), value.to_owned());
     }
@@ -73,11 +78,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join(".env");
         std::fs::write(&f, "A=file\nB=file\n").unwrap();
-        let v = collect(&["A=flag".into(), "C=a=b".into()], Some(&f)).unwrap();
+        let v = collect("--env", &["A=flag".into(), "C=a=b".into()], Some(&f)).unwrap();
         assert_eq!(
             (v["A"].as_str(), v["B"].as_str(), v["C"].as_str()),
             ("flag", "file", "a=b")
         );
-        assert!(collect(&["NOEQ".into()], None).is_err());
+        let err = collect("--set-env", &["NOEQ".into()], None).unwrap_err();
+        assert_eq!(err.to_string(), "--set-env \"NOEQ\": expected KEY=VALUE");
     }
 }
