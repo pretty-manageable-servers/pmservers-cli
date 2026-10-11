@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
@@ -79,6 +80,20 @@ fn details(c: &Container) {
                     .join(", "),
                 _ => "-".into(),
             },
+        ),
+        (
+            "Managed tunnel",
+            c.tunnel.as_ref().map_or_else(
+                || "-".into(),
+                |t| {
+                    format!(
+                        "{} · {} · {}",
+                        t.status,
+                        t.origin,
+                        t.message.as_deref().unwrap_or("")
+                    )
+                },
+            ),
         ),
         (
             "Variables",
@@ -162,11 +177,44 @@ fn env_given(env: &EnvArgs) -> bool {
     !env.env.is_empty() || env.env_file.is_some()
 }
 
+fn read_tunnel_token(file: Option<&std::path::Path>, stdin: bool) -> Result<Option<String>> {
+    if let Some(path) = file {
+        let metadata = std::fs::metadata(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                bail!("{} must be private (chmod 600)", path.display());
+            }
+        }
+        if !metadata.is_file() {
+            bail!("{} is not a regular file", path.display());
+        }
+        let token = std::fs::read_to_string(path)?.trim().to_owned();
+        return Ok(Some(token));
+    }
+    if stdin {
+        let mut token = String::new();
+        std::io::stdin().read_to_string(&mut token)?;
+        return Ok(Some(token.trim().to_owned()));
+    }
+    Ok(None)
+}
+
 async fn create(ctx: &Ctx, a: CreateContainerArgs) -> Result<()> {
     let project = ctx.project_id().await?;
     let client = ctx.client()?;
     check_ports(&a.ports).map_err(|e| anyhow!(e))?;
     let env = envfile::collect("--env", &a.env.env, a.env.env_file.as_deref())?;
+    let tunnel_token = read_tunnel_token(a.tunnel_token_file.as_deref(), a.tunnel_token_stdin)?;
+    if tunnel_token.is_some() != a.tunnel_port.is_some() {
+        bail!("--tunnel-port and a token source are required together");
+    }
+    if let Some(port) = a.tunnel_port {
+        if !a.ports.contains(&port) {
+            bail!("--tunnel-port must also be listed with --port");
+        }
+    }
     let registry_credential_id = match &a.registry_credential {
         Some(w) => Some(credential_id(&client, w).await?),
         None => None,
@@ -183,6 +231,8 @@ async fn create(ctx: &Ctx, a: CreateContainerArgs) -> Result<()> {
                 env,
                 runtime: a.runtime,
                 ports: a.ports,
+                tunnel_port: a.tunnel_port,
+                tunnel_token,
             },
         )
         .await?;
@@ -210,6 +260,18 @@ async fn edit(ctx: &Ctx, a: EditContainerArgs) -> Result<()> {
         update.ports = Some(a.ports);
         // The new list replaces the old list.
         eprintln!("Note: these ports replace all ports of the container.");
+    }
+    update.tunnel_port = a.tunnel_port;
+    update.detach_tunnel = a.detach_tunnel;
+    update.tunnel_token = read_tunnel_token(a.tunnel_token_file.as_deref(), a.tunnel_token_stdin)?;
+    if let Some(port) = update.tunnel_port {
+        let target_ports = update.ports.as_deref().unwrap_or(&current.ports);
+        if !target_ports.contains(&port) {
+            bail!("--tunnel-port must also be listed with --port");
+        }
+    }
+    if update.tunnel_token.is_some() && current.tunnel.is_none() && update.tunnel_port.is_none() {
+        bail!("attaching a tunnel needs --tunnel-port");
     }
     if a.no_registry_credential {
         update.registry_credential_id = Some(None);
@@ -245,8 +307,11 @@ async fn edit(ctx: &Ctx, a: EditContainerArgs) -> Result<()> {
         && update.ports.is_none()
         && update.env_set.is_none()
         && update.env_unset.is_none()
+        && update.tunnel_port.is_none()
+        && update.tunnel_token.is_none()
+        && !update.detach_tunnel
     {
-        bail!("Nothing to change. Pass --image, --size, --runtime, --port, --clear-ports, --registry-credential, --env, --clear-env, --set-env or --unset-env.");
+        bail!("Nothing to change. Pass --image, --size, --runtime, --port, --clear-ports, --registry-credential, --env, --clear-env, --set-env, --unset-env, --tunnel-port, a tunnel token source or --detach-tunnel.");
     }
     let mut c = client
         .update_container(&project, &current.id, &update)
