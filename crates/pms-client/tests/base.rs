@@ -34,17 +34,14 @@ async fn catalog_parses_all_lists() {
         .and(path("/v1/catalog"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "regions": ["ca-tor-1"],
-            "vm_sizes": [{"id": "pms-s-1", "vcpu": 1, "memory_gib": 2}],
             "container_sizes": [{"id": "pms-c-250m-512", "vcpu": 0.25, "memory_mib": 512}],
             "database_sizes": [{"id": "pms-db-250m-512", "vcpu": 0.25, "memory_mib": 512}],
-            "vm_images": [{"id": "ubuntu-24.04", "name": "Ubuntu", "version": "24.04"}],
             "ai_models": [{"id": "gemma4-e4b", "type": "llm", "description": "d", "detail": "x"}]
         })))
         .mount(&server)
         .await;
     let c = client.catalog().await.unwrap();
     assert_eq!(c.regions, ["ca-tor-1"]);
-    assert_eq!(c.vm_sizes[0].memory_gib, 2);
     assert_eq!(c.container_sizes[0].vcpu, 0.25);
     assert_eq!(c.ai_models[0].kind, "llm");
 }

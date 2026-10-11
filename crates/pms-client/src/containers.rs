@@ -5,7 +5,23 @@ use serde::{Deserialize, Serialize};
 use crate::client::Client;
 use crate::core::Items;
 use crate::error::Result;
-use crate::vms::PowerAction;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerAction {
+    Start,
+    Stop,
+    Restart,
+}
+
+impl PowerAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PowerAction::Start => "start",
+            PowerAction::Stop => "stop",
+            PowerAction::Restart => "restart",
+        }
+    }
+}
 
 /// What the account may do with containers. `access` is none, pending, approved or rejected.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 # pmservers-cli
 
-`pms` is the command line tool for PMServers. It does what the console does: projects, VMs, containers, databases and AI keys.
+`pms` is the command line tool for PMServers. It does what the console does: projects, containers, databases and AI keys.
 
 This repo is open source under the MIT license. Do not put internal host names or secrets in it.
 
@@ -50,18 +50,13 @@ The values are read with `option_env!`. Variables with the same names at run tim
 pms login                         # GitHub, in the browser
 pms login --email                 # email and password, asked in the terminal
 pms whoami
-pms catalog [sizes|images|models]
+pms catalog [sizes|models]
 
 pms project list | create <name> [--use] | show | rename <name> | delete | use <project> | usage | leave
 pms member list | invite <email> | remove <email|user-id>
 pms ssh-key list | add <name> [--file F | --key K] | delete <id>
 pms token list | create --name <name> [--expires Nd|never] | revoke <token-id>
 
-pms vm list | show <vm> | delete <vm> | start|stop|restart <vm> | metrics <vm>
-pms vm create <name> --size S --image I [--disk-gb N] (--ssh-key K | --public-key-file F | --generate-key [--key-out F]) [--wait]
-pms vm console <vm>               # Ctrl-] leaves
-pms vm ssh <vm> [-i KEY] [-u USER] [-- ssh args]
-pms ssh-config                    # the jump host block and one block for each VM
 pms events [--follow]
 
 pms access show | request <reason>
@@ -83,9 +78,9 @@ Global options: `--api-url` (or `PMS_API_URL`, default `https://api.pmservers.or
 - `--wait` on create and on actions waits for the resource, using the event stream. `--timeout` sets the limit in seconds (default 600).
 - Secrets (the AI key secret, the database password and connection URL) print one time, as in the console. The API does not return them again.
 - The managed tunnel token comes from standard input or a file with no group or world permissions. It is never accepted as a command-line value; tunnel status appears in `container show`.
-- `pms vm ssh` uses `ssh` with `cloudflared access ssh` as the proxy for the jump host. If `cloudflared` is not on `PATH`, `pms` asks, then downloads a pinned version into `~/.local/share/pms/bin` (the OS data folder on macOS) and checks its SHA-256 against a value pinned in `crates/pms/src/cloudflared.rs`. `--yes` skips the question. To bump the version, change `VERSION` and the four checksums, then run `cargo test -p pms -- --ignored real_downloads`.
+- `pms db connect` uses `ssh` with `cloudflared access ssh` as the proxy for the jump host. If `cloudflared` is not on `PATH`, `pms` asks, then downloads a pinned version into `~/.local/share/pms/bin` (the OS data folder on macOS) and checks its SHA-256 against a value pinned in `crates/pms/src/cloudflared.rs`. `--yes` skips the question. To bump the version, change `VERSION` and the four checksums, then run `cargo test -p pms -- --ignored real_downloads`.
 
-- `pms db connect <db>` opens `localhost:<port>` (default 5432) to a running database through the same SSH jump host, with `ssh -N -L`. It prints `postgres://app:<password>@localhost:<port>/app`: put the database password in place of `<password>` (the password is shown one time at create; `pms db reset-password` makes a new one). Nothing is public. You need a saved SSH key (`pms ssh-key add`) or a key that you gave to a VM; pass the private key with `-i` if ssh does not find it. All members of the project can connect. It needs `cloudflared` like `pms vm ssh`. The local port is on `127.0.0.1` only. Press Ctrl-C to close the tunnel.
+- `pms db connect <db>` opens `localhost:<port>` (default 5432) to a running database through the same SSH jump host, with `ssh -N -L`. It prints `postgres://app:<password>@localhost:<port>/app`: put the database password in place of `<password>` (the password is shown one time at create; `pms db reset-password` makes a new one). Nothing is public. You need a saved SSH key (`pms ssh-key add`); pass the private key with `-i` if ssh does not find it. All members of the project can connect. It needs `cloudflared` as described above. The local port is on `127.0.0.1` only. Press Ctrl-C to close the tunnel.
 
 The session is kept in the OS keychain. If there is no keychain, it is kept in `~/.config/pms/credentials.json` with mode `0600`. Set `PMS_NO_KEYRING=1` to always use the file. `PMS_CONFIG_DIR` changes the config folder and `PMS_DATA_DIR` the data folder.
 

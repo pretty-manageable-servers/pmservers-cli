@@ -8,7 +8,6 @@ pub mod databases;
 pub mod error;
 pub mod events;
 pub mod tokens;
-pub mod vms;
 
 pub use client::{Client, StaticToken, TokenSource};
 pub use error::{Error, Result};

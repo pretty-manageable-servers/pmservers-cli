@@ -263,10 +263,8 @@ async fn catalog_json_and_table() {
         .and(path("/v1/catalog"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "regions": ["ca-tor-1"],
-            "vm_sizes": [{"id": "pms-s-1", "vcpu": 1, "memory_gib": 2}],
             "container_sizes": [{"id": "pms-c-250m-512", "vcpu": 0.25, "memory_mib": 512}],
             "database_sizes": [{"id": "pms-db-250m-512", "vcpu": 0.25, "memory_mib": 512}],
-            "vm_images": [{"id": "ubuntu-24.04", "name": "Ubuntu", "version": "24.04"}],
             "ai_models": [{"id": "gemma4-e4b", "type": "llm", "description": "Small model", "detail": ""}]
         })))
         .mount(&api)
@@ -278,14 +276,16 @@ async fn catalog_json_and_table() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("gemma4-e4b").and(predicate::str::contains("pms-s-1").not()),
+            predicate::str::contains("gemma4-e4b")
+                .and(predicate::str::contains("pms-c-250m-512").not()),
         );
     env.cmd(&api.uri())
         .args(["catalog", "sizes"])
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("pms-s-1").and(predicate::str::contains("pms-c-250m-512")),
+            predicate::str::contains("pms-db-250m-512")
+                .and(predicate::str::contains("pms-c-250m-512")),
         );
     let out = env
         .cmd(&api.uri())
@@ -293,5 +293,5 @@ async fn catalog_json_and_table() {
         .output()
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["vm_images"][0]["id"], "ubuntu-24.04");
+    assert_eq!(v["container_sizes"][0]["id"], "pms-c-250m-512");
 }

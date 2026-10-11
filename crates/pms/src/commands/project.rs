@@ -135,7 +135,6 @@ async fn usage(ctx: &Ctx) -> Result<()> {
             vec![
                 row("vCPU", &u.vcpu, ""),
                 row("Memory", &u.memory_gib, " GiB"),
-                row("VM storage", &u.storage_gb, " GB"),
                 vec![
                     "AI spend (month)".into(),
                     format!("${}", num(u.ai_spend_usd.used)),

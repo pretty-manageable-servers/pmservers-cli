@@ -10,26 +10,12 @@ pub struct Me {
     pub plan: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VmSize {
-    pub id: String,
-    pub vcpu: u32,
-    pub memory_gib: u32,
-}
-
 /// Container and database sizes have the same shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputeSize {
     pub id: String,
     pub vcpu: f64,
     pub memory_mib: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VmImage {
-    pub id: String,
-    pub name: String,
-    pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,13 +34,9 @@ pub struct Catalog {
     #[serde(default)]
     pub regions: Vec<String>,
     #[serde(default)]
-    pub vm_sizes: Vec<VmSize>,
-    #[serde(default)]
     pub container_sizes: Vec<ComputeSize>,
     #[serde(default)]
     pub database_sizes: Vec<ComputeSize>,
-    #[serde(default)]
-    pub vm_images: Vec<VmImage>,
     #[serde(default)]
     pub ai_models: Vec<AiModel>,
 }
@@ -92,7 +74,6 @@ pub struct Meter {
 pub struct Usage {
     pub vcpu: Meter,
     pub memory_gib: Meter,
-    pub storage_gb: Meter,
     pub ai_spend_usd: Meter,
 }
 

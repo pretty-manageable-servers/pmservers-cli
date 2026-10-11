@@ -72,7 +72,6 @@ async fn project_use_by_name_saves_the_default() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "vcpu": {"used": 0, "limit": 2, "series": []},
             "memory_gib": {"used": 0, "limit": 4, "series": []},
-            "storage_gb": {"used": 0, "limit": 20, "series": []},
             "ai_spend_usd": {"used": 0.5, "limit": 5.0, "series": []}
         })))
         .mount(&api)
@@ -182,15 +181,17 @@ async fn project_delete_conflict_shows_the_api_message() {
         .await;
     Mock::given(method("DELETE"))
         .and(path("/v1/projects/prj_aaaaaaaaaaaa"))
-        .respond_with(ResponseTemplate::new(409).set_body_json(json!({"error": {"code": "conflict",
-            "message": "Delete the VMs, containers, databases and AI keys of this project first."}})))
+        .respond_with(
+            ResponseTemplate::new(409).set_body_json(json!({"error": {"code": "conflict",
+            "message": "Delete the containers, databases and AI keys of this project first."}})),
+        )
         .mount(&api)
         .await;
     env.cmd(&api.uri())
         .args(["-p", "prj_aaaaaaaaaaaa", "-y", "project", "delete"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Delete the VMs"));
+        .stderr(predicate::str::contains("Delete the containers"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

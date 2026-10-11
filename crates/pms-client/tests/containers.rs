@@ -1,7 +1,8 @@
 mod common;
 
-use pms_client::containers::{CreateContainer, CreateRegistryCredential, UpdateContainer};
-use pms_client::vms::PowerAction;
+use pms_client::containers::{
+    CreateContainer, CreateRegistryCredential, PowerAction, UpdateContainer,
+};
 use serde_json::json;
 use wiremock::matchers::{body_json, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, ResponseTemplate};
