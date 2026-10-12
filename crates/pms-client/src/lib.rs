@@ -7,6 +7,7 @@ pub mod core;
 pub mod databases;
 pub mod error;
 pub mod events;
+pub mod storage;
 pub mod tokens;
 
 pub use client::{Client, StaticToken, TokenSource};

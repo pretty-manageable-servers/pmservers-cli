@@ -14,6 +14,8 @@ pub struct Ctx {
     pub yes: bool,
     pub api_url: String,
     pub project: Option<String>,
+    /// True when `--project` was typed. A value from `PMS_PROJECT` is not typed.
+    pub project_typed: bool,
     client: OnceLock<Client>,
 }
 
@@ -24,6 +26,7 @@ impl Ctx {
             yes,
             api_url,
             project,
+            project_typed: false,
             client: OnceLock::new(),
         }
     }

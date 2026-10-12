@@ -48,6 +48,8 @@ pub struct Project {
     pub region: String,
     /// `owner` or `member`.
     pub role: String,
+    /// The user ID of the account owner. Object storage uses it as the account.
+    pub owner_id: String,
     pub created_at: String,
 }
 

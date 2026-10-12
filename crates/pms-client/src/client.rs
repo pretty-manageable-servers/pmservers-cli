@@ -161,7 +161,7 @@ fn to_value<B: Serialize>(body: &B) -> Result<serde_json::Value> {
     serde_json::to_value(body).map_err(|e| Error::Invalid(e.to_string()))
 }
 
-fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
+pub(crate) fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     serde_json::from_slice(bytes).map_err(|e| Error::Decode(e.to_string()))
 }
 

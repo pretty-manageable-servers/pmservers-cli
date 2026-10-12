@@ -70,6 +70,9 @@ pub enum Command {
     /// API tokens for scripts and CI. Set PMS_TOKEN to sign in with one.
     #[command(subcommand)]
     Token(TokenCmd),
+    /// Object storage (S3 compatible). Sign in with `pms login`: API tokens cannot use it.
+    #[command(subcommand)]
+    Storage(StorageCmd),
 }
 
 #[derive(Subcommand)]
@@ -483,4 +486,100 @@ pub enum AiKeyCmd {
     Rotate { key: String },
     /// Delete a key.
     Delete { key: String },
+}
+
+#[derive(Subcommand)]
+pub enum StorageCmd {
+    /// Show the object storage: state, usage, limits and the endpoint.
+    Status(AccountArgs),
+    /// Turn on object storage. Only approved accounts can.
+    Enable(AccountArgs),
+    /// Turn off object storage. Remove all buckets first. The data is gone.
+    Disable(AccountArgs),
+    /// Buckets. To share a file, make a presigned URL with any S3 tool.
+    #[command(subcommand)]
+    Bucket(BucketCmd),
+    /// Access keys for the S3 API.
+    #[command(subcommand)]
+    Key(StorageKeyCmd),
+}
+
+/// Storage routes need the owner's account. A project member passes the owner's ID, or the project.
+#[derive(Args)]
+pub struct AccountArgs {
+    /// The owner ID of the account. For a project member. Default: the owner of the current project (`pms project use`), else your own account.
+    /// Cannot be used with --project.
+    #[arg(long, value_name = "OWNER_ID")]
+    pub account: Option<String>,
+}
+
+/// True when `--project` was typed on the command line, at any level. Clap counts a value from
+/// `PMS_PROJECT` as present too, so a conflict check in clap would also fire on the environment.
+pub fn project_typed(matches: &clap::ArgMatches) -> bool {
+    matches.value_source("project") == Some(clap::parser::ValueSource::CommandLine)
+        || matches
+            .subcommand()
+            .is_some_and(|(_, sub)| project_typed(sub))
+}
+
+#[derive(Subcommand)]
+pub enum BucketCmd {
+    /// List buckets.
+    #[command(name = "ls")]
+    List(AccountArgs),
+    /// Make a bucket. Bucket names are unique across all of PMServers.
+    Create {
+        name: String,
+        #[command(flatten)]
+        acct: AccountArgs,
+    },
+    /// Delete an empty bucket.
+    #[command(name = "rm")]
+    Delete {
+        name: String,
+        #[command(flatten)]
+        acct: AccountArgs,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum StorageKeyCmd {
+    /// List access keys. The secrets are not shown.
+    #[command(name = "ls")]
+    List(AccountArgs),
+    /// Make an access key. The secret is shown one time.
+    Create(CreateStorageKeyArgs),
+    /// Make a new key ID and secret with the same settings. The old key stops working.
+    Reset {
+        key_id: String,
+        /// Print export lines for the AWS CLI and SDKs, not a table.
+        #[arg(long)]
+        env: bool,
+        #[command(flatten)]
+        acct: AccountArgs,
+    },
+    /// Delete an access key. Apps that use it stop working.
+    #[command(name = "rm")]
+    Delete {
+        key_id: String,
+        #[command(flatten)]
+        acct: AccountArgs,
+    },
+}
+
+#[derive(Args)]
+pub struct CreateStorageKeyArgs {
+    /// A name for the key, for example ci.
+    pub name: String,
+    /// The key can read, but not write or delete.
+    #[arg(long)]
+    pub read_only: bool,
+    /// A bucket the key can use. Repeat for more. Default: all buckets, now and later.
+    #[arg(long = "bucket", value_name = "BUCKET")]
+    pub buckets: Vec<String>,
+    /// Print export lines for the AWS CLI and SDKs, not a table.
+    #[arg(long)]
+    pub env: bool,
+    #[command(flatten)]
+    pub acct: AccountArgs,
 }

@@ -71,7 +71,11 @@ pub fn read(path: &Path) -> serde_json::Value {
 }
 
 pub fn project_json(id: &str, name: &str, role: &str) -> serde_json::Value {
-    json!({"id": id, "name": name, "region": "ca-tor-1", "role": role,
+    project_json_owned(id, name, role, "5b1c0e2a-8d41-4f3e-9a77-1e0c3d2b6f90")
+}
+
+pub fn project_json_owned(id: &str, name: &str, role: &str, owner_id: &str) -> serde_json::Value {
+    json!({"id": id, "name": name, "region": "ca-tor-1", "role": role, "owner_id": owner_id,
            "created_at": "2026-10-09T10:00:00+00:00"})
 }
 
