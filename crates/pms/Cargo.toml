@@ -9,7 +9,6 @@ repository.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 async-trait = "0.1.92"
-base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 comfy-table = "8.0.1"
 dialoguer = "0.12.0"
@@ -18,7 +17,6 @@ flate2 = "1.1.10"
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust", "vendored"] }
 open = "5.4.4"
 pms-client = { version = "0.8.0", path = "../pms-client" }
-rand = "0.10.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots", "stream"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.152"
