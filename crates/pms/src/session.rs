@@ -1,8 +1,9 @@
 use std::fs;
-use std::path::PathBuf;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use pms_client::{Error, TokenSource};
 use serde::{Deserialize, Serialize};
@@ -11,12 +12,11 @@ use tokio::sync::Mutex;
 use crate::config::config_dir;
 use crate::supabase::{Supabase, SupabaseConfig, TokenResponse};
 
-const KEYRING_SERVICE: &str = "pms-cli";
-const KEYRING_USER: &str = "session";
+const FILE_NAME: &str = "credentials.json";
 /// Refresh this long before the token ends, so that a request does not race the expiry.
 const REFRESH_MARGIN: i64 = 60;
 
-/// `PMS_TOKEN`, an API token. It wins over the saved session and the keyring. Empty means unset.
+/// `PMS_TOKEN`, an API token. It wins over the saved session. Empty means unset.
 pub fn env_token() -> Option<String> {
     std::env::var("PMS_TOKEN")
         .ok()
@@ -31,7 +31,7 @@ pub fn now() -> i64 {
         .unwrap_or(0)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoredSession {
     pub access_token: String,
     pub refresh_token: String,
@@ -62,98 +62,111 @@ impl StoredSession {
     }
 }
 
+/// The session file, `credentials.json` in the config folder.
 fn file_path() -> Result<PathBuf> {
-    Ok(config_dir()?.join("credentials.json"))
+    Ok(config_dir()?.join(FILE_NAME))
 }
 
-fn use_keyring() -> bool {
-    std::env::var_os("PMS_NO_KEYRING").is_none()
-}
-
-fn entry() -> Result<keyring::Entry, keyring::Error> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-}
-
+/// The saved session, or `None` when there is no session file.
 pub fn load() -> Result<Option<StoredSession>> {
-    if use_keyring() {
-        if let Ok(text) = entry().and_then(|e| e.get_password()) {
-            if let Ok(s) = serde_json::from_str(&text) {
-                return Ok(Some(s));
-            }
-        }
-    }
+    load_from(&file_path()?)
+}
+
+/// Saves the session. Returns the file that holds it.
+pub fn save(session: &StoredSession) -> Result<PathBuf> {
     let path = file_path()?;
-    match fs::read_to_string(&path) {
+    save_to(&path, session)?;
+    Ok(path)
+}
+
+/// Removes the session file. A missing file is not an error.
+pub fn clear() -> Result<()> {
+    clear_from(&file_path()?)
+}
+
+pub fn load_from(path: &Path) -> Result<Option<StoredSession>> {
+    match fs::read_to_string(path) {
         Ok(text) => {
-            Ok(Some(serde_json::from_str(&text).with_context(|| {
-                format!("bad session file {}", path.display())
-            })?))
+            let session = serde_json::from_str(&text)
+                .with_context(|| format!("bad session file {}", path.display()))?;
+            Ok(Some(session))
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
     }
 }
 
-pub enum Saved {
-    Keychain,
-    File(PathBuf),
-}
-
-pub fn save(session: &StoredSession) -> Result<Saved> {
+pub fn save_to(path: &Path, session: &StoredSession) -> Result<()> {
     let text = serde_json::to_string(session)?;
-    if use_keyring() && entry().and_then(|e| e.set_password(&text)).is_ok() {
-        // Do not keep an older copy in a file.
-        if let Ok(path) = file_path() {
-            let _ = fs::remove_file(path);
-        }
-        return Ok(Saved::Keychain);
+    let dir = path
+        .parent()
+        .ok_or_else(|| anyhow!("bad session path {}", path.display()))?;
+    if !dir.exists() {
+        fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+        // Only a folder that pms makes gets mode 0700. An existing folder keeps its mode.
+        set_mode(dir, 0o700)?;
     }
-    let path = file_path()?;
-    write_private(&path, text.as_bytes())?;
-    Ok(Saved::File(path))
+    write_atomic(path, text.as_bytes())
 }
 
-pub fn clear() -> Result<()> {
-    if use_keyring() {
-        if let Ok(e) = entry() {
-            let _ = e.delete_credential();
-        }
-    }
-    match fs::remove_file(file_path()?) {
+pub fn clear_from(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
         Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("cannot remove {}", path.display())),
     }
 }
 
-/// Mode 0600 from the first byte, in a 0700 folder.
-pub fn write_private(path: &std::path::Path, data: &[u8]) -> Result<()> {
-    use std::io::Write;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
-        }
+/// Writes a temp file in the same folder, then renames it over `path`.
+/// The temp file is mode 0600 from its first byte.
+fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| anyhow!("bad session path {}", path.display()))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow!("bad session path {}", path.display()))?;
+    let tmp = dir.join(format!(
+        ".{}.{}.tmp",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    let _ = fs::remove_file(&tmp);
+    let result = write_then_rename(&tmp, path, data);
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
+    result.with_context(|| format!("cannot write {}", path.display()))
+}
+
+fn write_then_rename(tmp: &Path, path: &Path, data: &[u8]) -> io::Result<()> {
+    let mut file = open_private(tmp)?;
+    file.write_all(data)?;
+    file.sync_all()?;
+    fs::rename(tmp, path)
+}
+
+/// Creates a new file. On unix the mode is set at open, so no other user can read it.
+fn open_private(path: &Path) -> io::Result<fs::File> {
     let mut opts = fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut file = opts
-        .open(path)
-        .with_context(|| format!("cannot write {}", path.display()))?;
-    file.write_all(data)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // The file can exist with a wider mode from an older run.
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
+    opts.open(path)
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .with_context(|| format!("cannot set the mode of {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
 }
 
@@ -198,5 +211,107 @@ impl TokenSource for SessionTokens {
         let mut s = self.session.lock().await;
         Self::renew(&mut s).await?;
         Ok(s.access_token.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(token: &str) -> StoredSession {
+        StoredSession {
+            access_token: token.to_owned(),
+            refresh_token: "refresh-1".to_owned(),
+            expires_at: 1_900_000_000,
+            user_id: "user-1".to_owned(),
+            email: "a@b.co".to_owned(),
+            provider: "email".to_owned(),
+            supabase_url: "https://example.supabase.co".to_owned(),
+        }
+    }
+
+    /// A path in a folder that does not exist yet.
+    fn new_path(dir: &tempfile::TempDir) -> PathBuf {
+        dir.path().join("config").join(FILE_NAME)
+    }
+
+    fn file_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn new_file_and_folder_are_private() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = new_path(&tmp);
+        save_to(&path, &sample("a")).unwrap();
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(mode(path.parent().unwrap()), 0o700);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn existing_folder_keeps_its_mode() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("config");
+        fs::create_dir(&dir).unwrap();
+        set_mode(&dir, 0o755).unwrap();
+        save_to(&dir.join(FILE_NAME), &sample("a")).unwrap();
+        assert_eq!(mode(&dir), 0o755);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn save_replaces_a_wide_file_atomically() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = new_path(&tmp);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "old text").unwrap();
+        set_mode(&path, 0o644).unwrap();
+
+        save_to(&path, &sample("new")).unwrap();
+
+        // The new file has mode 0600 and the new content. No temp file is left.
+        assert_eq!(mode(&path), 0o600);
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"access_token\":\"new\""));
+        assert_eq!(file_names(path.parent().unwrap()), vec![FILE_NAME]);
+    }
+
+    #[test]
+    fn save_load_clear_round_trip() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = new_path(&tmp);
+
+        assert_eq!(load_from(&path).unwrap(), None);
+
+        save_to(&path, &sample("a")).unwrap();
+        assert_eq!(load_from(&path).unwrap(), Some(sample("a")));
+
+        clear_from(&path).unwrap();
+        assert!(!path.exists());
+        assert_eq!(load_from(&path).unwrap(), None);
+        // Clearing twice is fine.
+        clear_from(&path).unwrap();
+    }
+
+    #[test]
+    fn bad_session_file_is_an_error() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = new_path(&tmp);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "not json").unwrap();
+        assert!(load_from(&path).is_err());
     }
 }
