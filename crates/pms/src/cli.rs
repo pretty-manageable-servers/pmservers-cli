@@ -67,9 +67,6 @@ pub enum Command {
     /// Registry logins for private images.
     #[command(subcommand, name = "registry-credential")]
     RegistryCredential(RegistryCmd),
-    /// SSH public keys saved on your account.
-    #[command(subcommand, name = "ssh-key")]
-    SshKey(SshKeyCmd),
     /// API tokens for scripts and CI. Set PMS_TOKEN to sign in with one.
     #[command(subcommand)]
     Token(TokenCmd),
@@ -157,24 +154,6 @@ pub enum MemberCmd {
     Invite { email: String },
     /// Remove a member by email or user ID.
     Remove { member: String },
-}
-
-#[derive(Subcommand)]
-pub enum SshKeyCmd {
-    /// List saved keys.
-    List,
-    /// Save a public key. Reads standard input if no key or file is given.
-    Add {
-        name: String,
-        /// Path to a public key file, for example ~/.ssh/id_ed25519.pub.
-        #[arg(long, conflicts_with = "key")]
-        file: Option<std::path::PathBuf>,
-        /// The public key text.
-        #[arg(long)]
-        key: Option<String>,
-    },
-    /// Delete a saved key by ID.
-    Delete { id: String },
 }
 
 #[derive(Args)]

@@ -54,7 +54,6 @@ pms catalog [sizes|models]
 
 pms project list | create <name> [--use] | show | rename <name> | delete | use <project> | usage | leave
 pms member list | invite <email> | remove <email|user-id>
-pms ssh-key list | add <name> [--file F | --key K] | delete <id>
 pms token list | create --name <name> [--expires Nd|never] | revoke <token-id>
 
 pms events [--follow]
@@ -127,7 +126,7 @@ An API token lets a script or CI job use one project. It is not a sign-in.
      - run: pms whoami
    ```
 
-A token works for the management API of its project only. The API refuses these for a token: token management, SSH keys, members, AI keys, project create, change and delete, account access, registry credential changes, and admin. Then `pms` shows the API message. Bad, revoked and expired tokens get `The API token is not valid.`. Too many bad checks from one network give a `429` for 10 minutes.
+A token works for the management API of its project only. The API refuses these for a token: token management, members, AI keys, project create, change and delete, account access, registry credential changes, and admin. Then `pms` shows the API message. Bad, revoked and expired tokens get `The API token is not valid.`. Too many bad checks from one network give a `429` for 10 minutes.
 
 For sandboxes, use the same token as the E2B API key:
 

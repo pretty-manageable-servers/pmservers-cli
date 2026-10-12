@@ -79,15 +79,6 @@ pub struct Usage {
     pub ai_spend_usd: Meter,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SshKey {
-    pub id: String,
-    pub name: String,
-    pub public_key: String,
-    pub fingerprint: String,
-    pub created_at: String,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct Items<T> {
     pub items: Vec<T>,
@@ -153,21 +144,5 @@ impl Client {
     pub async fn remove_member(&self, project: &str, user_id: &str) -> Result<()> {
         self.delete(&["v1", "projects", project, "members", user_id])
             .await
-    }
-
-    pub async fn ssh_keys(&self) -> Result<Vec<SshKey>> {
-        Ok(self.get::<Items<SshKey>>(&["v1", "ssh-keys"]).await?.items)
-    }
-
-    pub async fn add_ssh_key(&self, name: &str, public_key: &str) -> Result<SshKey> {
-        self.post(
-            &["v1", "ssh-keys"],
-            &serde_json::json!({ "name": name, "public_key": public_key }),
-        )
-        .await
-    }
-
-    pub async fn delete_ssh_key(&self, id: &str) -> Result<()> {
-        self.delete(&["v1", "ssh-keys", id]).await
     }
 }
