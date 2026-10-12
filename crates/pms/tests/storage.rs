@@ -24,8 +24,8 @@ fn storage_json(status: &str) -> serde_json::Value {
            "would_cost_usd": 0.0})
 }
 
-fn bucket_json(name: &str, public: bool) -> serde_json::Value {
-    json!({"name": name, "public_read": public, "status": "active", "status_message": null,
+fn bucket_json(name: &str) -> serde_json::Value {
+    json!({"name": name, "status": "active", "status_message": null,
            "used_bytes": 2048, "object_count": 3, "created_at": "2026-10-11T10:00:00+00:00",
            "updated_at": "2026-10-11T10:00:00+00:00"})
 }
@@ -256,7 +256,7 @@ async fn bucket_list_shows_the_buckets() {
     Mock::given(method("GET"))
         .and(path("/v1/storage/buckets"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
-            bucket_json("photos", true), bucket_json("logs", false)]})))
+            bucket_json("photos"), bucket_json("logs")]})))
         .mount(&api)
         .await;
     env.cmd(&api.uri())
@@ -271,20 +271,40 @@ async fn bucket_list_shows_the_buckets() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn bucket_create_with_public_read() {
+async fn bucket_create_sends_only_the_name() {
     let (api, env) = setup().await;
     Mock::given(method("POST"))
         .and(path("/v1/storage/buckets"))
-        .and(body_json(json!({"name": "photos", "public_read": true})))
-        .respond_with(ResponseTemplate::new(202).set_body_json(bucket_json("photos", true)))
+        .and(body_json(json!({"name": "photos"})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(bucket_json("photos")))
         .expect(1)
         .mount(&api)
         .await;
     env.cmd(&api.uri())
-        .args(["storage", "bucket", "create", "photos", "--public"])
+        .args(["storage", "bucket", "create", "photos"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("photos").and(predicate::str::contains("Public read")));
+        .stdout(predicate::str::contains("photos").and(predicate::str::contains("Public").not()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bucket_public_command_is_gone() {
+    let (api, env) = setup().await;
+    env.cmd(&api.uri())
+        .args(["storage", "bucket", "public", "photos", "on"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unrecognized subcommand"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bucket_help_says_how_to_share() {
+    let (api, env) = setup().await;
+    env.cmd(&api.uri())
+        .args(["storage", "bucket", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("presigned URL"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -324,34 +344,6 @@ async fn bucket_rm_asks_first_then_deletes() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Deleting bucket photos."));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn bucket_public_on_and_off() {
-    let (api, env) = setup().await;
-    Mock::given(method("PATCH"))
-        .and(path("/v1/storage/buckets/photos"))
-        .and(body_json(json!({"public_read": true})))
-        .respond_with(ResponseTemplate::new(202).set_body_json(bucket_json("photos", true)))
-        .expect(1)
-        .mount(&api)
-        .await;
-    Mock::given(method("PATCH"))
-        .and(path("/v1/storage/buckets/photos"))
-        .and(body_json(json!({"public_read": false})))
-        .respond_with(ResponseTemplate::new(202).set_body_json(bucket_json("photos", false)))
-        .expect(1)
-        .mount(&api)
-        .await;
-    env.cmd(&api.uri())
-        .args(["storage", "bucket", "public", "photos", "on"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Public read:").and(predicate::str::contains("yes")));
-    env.cmd(&api.uri())
-        .args(["storage", "bucket", "public", "photos", "off"])
-        .assert()
-        .success();
 }
 
 #[tokio::test(flavor = "multi_thread")]

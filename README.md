@@ -69,7 +69,7 @@ pms db list | show | create [--vector] | delete | vector on|off | reset-password
 pms db connect <db> [--port N] [-i KEY]   # a local port to the database; Ctrl-C stops
 pms ai-key list | show | create --model M --budget USD | edit | rotate | delete
 pms storage status | enable | disable
-pms storage bucket ls | create <name> [--public] | rm <name> | public <name> on|off
+pms storage bucket ls | create <name> | rm <name>
 pms storage key ls | create <name> [--read-only] [--bucket B ...] [--env] | reset <key-id> [--env] | rm <key-id>
 ```
 
@@ -78,6 +78,7 @@ Use `pms <command> --help` for all options.
 Global options: `--api-url` (or `PMS_API_URL`, default `https://api.pmservers.org`), `--project` (or `PMS_PROJECT`; an ID or a name; `pms project use` saves a default in `~/.config/pms/config.toml`), `--output table|json` (or `PMS_OUTPUT`), `--yes`.
 
 - A delete asks first. Without a terminal it fails unless you pass `--yes`.
+- To share a file, make a presigned URL with any S3 tool, for example `aws s3 presign s3://<bucket>/<key> --expires-in 3600 --endpoint-url https://s3.pmservers.org`. A presigned URL works until it expires. The longest lifetime is 7 days.
 - `--wait` on create and on actions waits for the resource, using the event stream. `--timeout` sets the limit in seconds (default 600).
 - Secrets (the AI key secret, the database password and connection URL) print one time, as in the console. The API does not return them again.
 - The managed tunnel token comes from standard input or a file with no group or world permissions. It is never accepted as a command-line value; tunnel status appears in `container show`.

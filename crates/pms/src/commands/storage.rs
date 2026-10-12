@@ -79,14 +79,6 @@ fn size(bytes: u64) -> String {
     }
 }
 
-fn yes_no(v: bool) -> String {
-    if v {
-        "yes".into()
-    } else {
-        "no".into()
-    }
-}
-
 // --- status, enable, disable ---
 
 async fn status(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
@@ -150,16 +142,8 @@ fn storage_details(s: &Storage) {
 async fn bucket(ctx: &Ctx, cmd: BucketCmd) -> Result<()> {
     match cmd {
         BucketCmd::List(a) => bucket_list(ctx, &a).await,
-        BucketCmd::Create { name, public, acct } => bucket_create(ctx, name, public, &acct).await,
+        BucketCmd::Create { name, acct } => bucket_create(ctx, name, &acct).await,
         BucketCmd::Delete { name, acct } => bucket_delete(ctx, &name, &acct).await,
-        BucketCmd::Public { name, state, acct } => {
-            let b = ctx
-                .client()?
-                .set_bucket_public(account(ctx, &acct).await?.as_deref(), &name, state.is_on())
-                .await?;
-            ctx.print(&b, bucket_details);
-            Ok(())
-        }
     }
 }
 
@@ -170,13 +154,12 @@ async fn bucket_list(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
         .await?;
     ctx.print(&list, |list| {
         print_table(
-            &["name", "status", "public", "used", "objects", "created"],
+            &["name", "status", "used", "objects", "created"],
             list.iter()
                 .map(|b| {
                     vec![
                         b.name.clone(),
                         status_text(&b.status, &b.status_message),
-                        yes_no(b.public_read),
                         size(b.used_bytes),
                         b.object_count.to_string(),
                         ts(&b.created_at),
@@ -188,11 +171,8 @@ async fn bucket_list(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
     Ok(())
 }
 
-async fn bucket_create(ctx: &Ctx, name: String, public: bool, a: &AccountArgs) -> Result<()> {
-    let body = CreateBucket {
-        name,
-        public_read: public,
-    };
+async fn bucket_create(ctx: &Ctx, name: String, a: &AccountArgs) -> Result<()> {
+    let body = CreateBucket { name };
     let b = ctx
         .client()?
         .create_bucket(account(ctx, a).await?.as_deref(), &body)
@@ -216,7 +196,6 @@ fn bucket_details(b: &Bucket) {
     print_kv(vec![
         ("Name", b.name.clone()),
         ("Status", status_text(&b.status, &b.status_message)),
-        ("Public read", yes_no(b.public_read)),
         ("Used", size(b.used_bytes)),
         ("Objects", b.object_count.to_string()),
         ("Created", ts(&b.created_at)),

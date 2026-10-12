@@ -496,7 +496,7 @@ pub enum StorageCmd {
     Enable(AccountArgs),
     /// Turn off object storage. Remove all buckets first. The data is gone.
     Disable(AccountArgs),
-    /// Buckets.
+    /// Buckets. To share a file, make a presigned URL with any S3 tool.
     #[command(subcommand)]
     Bucket(BucketCmd),
     /// Access keys for the S3 API.
@@ -530,9 +530,6 @@ pub enum BucketCmd {
     /// Make a bucket. Bucket names are unique across all of PMServers.
     Create {
         name: String,
-        /// Anyone can read the objects over the public web address.
-        #[arg(long)]
-        public: bool,
         #[command(flatten)]
         acct: AccountArgs,
     },
@@ -543,26 +540,6 @@ pub enum BucketCmd {
         #[command(flatten)]
         acct: AccountArgs,
     },
-    /// Turn public read on or off.
-    Public {
-        name: String,
-        #[arg(value_enum)]
-        state: Toggle,
-        #[command(flatten)]
-        acct: AccountArgs,
-    },
-}
-
-#[derive(Clone, Copy, ValueEnum)]
-pub enum Toggle {
-    On,
-    Off,
-}
-
-impl Toggle {
-    pub fn is_on(self) -> bool {
-        matches!(self, Toggle::On)
-    }
 }
 
 #[derive(Subcommand)]

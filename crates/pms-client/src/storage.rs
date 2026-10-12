@@ -28,7 +28,6 @@ pub struct Storage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bucket {
     pub name: String,
-    pub public_read: bool,
     /// provisioning, active, deleting or failed.
     pub status: String,
     #[serde(default)]
@@ -42,13 +41,6 @@ pub struct Bucket {
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateBucket {
     pub name: String,
-    pub public_read: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct UpdateBucket {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_read: Option<bool>,
 }
 
 /// The buckets of an access key: the string `all`, or a list of bucket names.
@@ -174,27 +166,6 @@ impl Client {
                 .send(
                     Method::POST,
                     self.storage_url(&["v1", "storage", "buckets"], account),
-                    Some(body),
-                )
-                .await?,
-        )
-    }
-
-    pub async fn set_bucket_public(
-        &self,
-        account: Option<&str>,
-        name: &str,
-        public_read: bool,
-    ) -> Result<Bucket> {
-        let body = serde_json::to_value(UpdateBucket {
-            public_read: Some(public_read),
-        })
-        .map_err(|e| crate::Error::Invalid(e.to_string()))?;
-        decode(
-            &self
-                .send(
-                    Method::PATCH,
-                    self.storage_url(&["v1", "storage", "buckets", name], account),
                     Some(body),
                 )
                 .await?,
