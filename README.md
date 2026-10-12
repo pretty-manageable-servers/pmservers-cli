@@ -82,7 +82,7 @@ Global options: `--api-url` (or `PMS_API_URL`, default `https://api.pmservers.or
 
 - `pms db connect <db>` opens `localhost:<port>` (default 5432) to a running database through the same SSH jump host, with `ssh -N -L`. It prints `postgres://app:<password>@localhost:<port>/app`: put the database password in place of `<password>` (the password is shown one time at create; `pms db reset-password` makes a new one). Nothing is public. You need a saved SSH key (`pms ssh-key add`); pass the private key with `-i` if ssh does not find it. All members of the project can connect. It needs `cloudflared` as described above. The local port is on `127.0.0.1` only. Press Ctrl-C to close the tunnel.
 
-The session is kept in the OS keychain. If there is no keychain, it is kept in `~/.config/pms/credentials.json` with mode `0600`. Set `PMS_NO_KEYRING=1` to always use the file. `PMS_CONFIG_DIR` changes the config folder and `PMS_DATA_DIR` the data folder.
+The session is kept in `~/.config/pms/credentials.json` with mode `0600`. The folder is `~/.config/pms` with mode `0700` when `pms` creates it. `pms` does not use the OS keychain, so it does not show keychain prompts. Older versions kept the session in the keychain. The first time `pms` finds no session file, it moves that session to the file and removes the keychain item. `PMS_NO_KEYRING` has no effect now. It is still accepted, so scripts keep working. `PMS_CONFIG_DIR` changes the config folder and `PMS_DATA_DIR` the data folder.
 
 ### Device login
 
@@ -102,7 +102,7 @@ An API token lets a script or CI job use one project. It is not a sign-in.
 
 2. List or revoke tokens with `pms token list --project slop` and `pms token revoke --project slop <token-id>`. Revoke a token that leaks. A project can have 20 active tokens.
 
-3. Set `PMS_TOKEN` to the token. When it is set, `pms` uses it instead of the saved session and the keyring. `pms` never tries to refresh a token. Set the project too, with `PMS_PROJECT` or `--project`.
+3. Set `PMS_TOKEN` to the token. When it is set, `pms` uses it instead of the saved session. `pms` never tries to refresh a token. Set the project too, with `PMS_PROJECT` or `--project`.
 
    ```yaml
    env:

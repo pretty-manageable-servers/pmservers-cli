@@ -481,6 +481,7 @@ async fn connect_prints_the_url_and_stops_on_ctrl_c() {
         .env("PMS_CONFIG_DIR", env.config_dir())
         .env("PMS_DATA_DIR", env.dir.path().join("data"))
         .env("PMS_NO_KEYRING", "1")
+        .env("PMS_SKIP_KEYCHAIN_MOVE", "1")
         .env("PMS_API_URL", api.uri())
         .env("PATH", &bin)
         .args([

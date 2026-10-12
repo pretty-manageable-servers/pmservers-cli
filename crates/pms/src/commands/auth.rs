@@ -7,7 +7,7 @@ use crate::cli::LoginArgs;
 use crate::ctx::Ctx;
 use crate::login;
 use crate::output::print_kv;
-use crate::session::{self, Saved};
+use crate::session::{self, Lookup};
 use crate::supabase::{Supabase, SupabaseConfig};
 
 pub async fn login(ctx: &Ctx, args: LoginArgs) -> Result<()> {
@@ -30,23 +30,32 @@ pub async fn login(ctx: &Ctx, args: LoginArgs) -> Result<()> {
             .unwrap_or_else(|| "https://auth.pmservers.org".to_owned());
         login::device_login(&auth_url, !args.no_browser).await?
     };
-    let saved = session::save(&session)?;
-    let place = match &saved {
-        Saved::Keychain => "the OS keychain".to_owned(),
-        Saved::File(p) => format!("{} (the OS keychain is not available)", p.display()),
-    };
+    let path = session::save(&session)?;
     if ctx.json() {
         crate::output::print_json(&json!({"email": session.email, "user_id": session.user_id}));
     } else {
-        println!("Signed in as {}. Session saved in {place}.", session.email);
+        println!(
+            "Signed in as {}. Session saved in {}.",
+            session.email,
+            path.display()
+        );
     }
     Ok(())
 }
 
 pub async fn logout(ctx: &Ctx) -> Result<()> {
-    let Some(stored) = session::load()? else {
-        ctx.done("You were not signed in.");
-        return Ok(());
+    let stored = match session::load()? {
+        Lookup::Session(s) => s,
+        Lookup::SignedOut => {
+            session::clear()?;
+            ctx.done("You were not signed in.");
+            return Ok(());
+        }
+        Lookup::Unreadable => {
+            session::clear()?;
+            ctx.done("Signed out.");
+            return Ok(());
+        }
     };
     // Remove the local copy even if the server cannot be reached.
     let revoke = match SupabaseConfig::for_session(&stored.supabase_url) {

@@ -391,6 +391,7 @@ async fn logs_follow_prints_only_new_lines() {
     let mut child = Command::new(assert_cmd::cargo::cargo_bin!("pms"))
         .env("PMS_CONFIG_DIR", env.config_dir())
         .env("PMS_NO_KEYRING", "1")
+        .env("PMS_SKIP_KEYCHAIN_MOVE", "1")
         .args([
             "--api-url",
             &api.uri(),
