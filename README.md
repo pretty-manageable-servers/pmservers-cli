@@ -54,19 +54,22 @@ pms catalog [sizes|models]
 
 pms project list | create <name> [--use] | show | rename <name> | delete | use <project> | usage | leave
 pms member list | invite <email> | remove <email|user-id>
-pms ssh-key list | add <name> [--file F | --key K] | delete <id>
 pms token list | create --name <name> [--expires Nd|never] | revoke <token-id>
 
 pms events [--follow]
 
 pms access show | request <reason>
-pms container list | show | create [--port P ...] [--tunnel-port P (--tunnel-token-file F | --tunnel-token-stdin)] | edit [--port P ... | --clear-ports] [--tunnel-port P] [--tunnel-token-file F | --tunnel-token-stdin | --detach-tunnel] | delete | start | stop | restart | logs [--previous] [--follow]
+pms container list | show | create [--port P ...] | edit [--port P ... | --clear-ports] | delete | start | stop | restart | logs [--previous] [--follow]
 pms container edit <name> --set-env B=20 --set-env D=4 --unset-env C   # change only these variables
 pms container edit <name> --env A=1                                    # replaces ALL variables
-pms container create web --image ghcr.io/owner/web:1 --size pms-c-250m-512 --port 3000 --tunnel-port 3000 --tunnel-token-file ~/.config/pms/tunnel-token
+pms container create web --image ghcr.io/owner/web:1 --size pms-c-250m-512 --port 3000
 pms registry-credential list | add <name> --host H --username U --token-stdin | delete <id>
 pms db list | show | create [--vector] | delete | vector on|off | reset-password
-pms db connect <db> [--port N] [-i KEY]   # a local port to the database; Ctrl-C stops
+pms network show
+pms network tailscale enable [--auth-key-file F] | disable
+pms network cloudflared enable [--token-file F] | disable
+pms network expose <name> [--port N] [--via tailscale|cloudflared|both] [--external-port N]
+pms network unexpose <name> [--port N] [--via tailscale|cloudflared|both]
 pms ai-key list | show | create --model M --budget USD | edit | rotate | delete
 pms storage status | enable | disable
 pms storage bucket ls | create <name> | rm <name>
@@ -81,11 +84,13 @@ Global options: `--api-url` (or `PMS_API_URL`, default `https://api.pmservers.or
 - To share a file, make a presigned URL with any S3 tool, for example `aws s3 presign s3://<bucket>/<key> --expires-in 3600 --endpoint-url https://s3.pmservers.org`. A presigned URL works until it expires. The longest lifetime is 7 days.
 - `--wait` on create and on actions waits for the resource, using the event stream. `--timeout` sets the limit in seconds (default 600).
 - Secrets (the AI key secret, the database password and connection URL) print one time, as in the console. The API does not return them again.
-- The managed tunnel token comes from standard input or a file with no group or world permissions. It is never accepted as a command-line value; tunnel status appears in `container show`.
-- `pms db connect` uses `ssh` with `cloudflared access ssh` as the proxy for the jump host. If `cloudflared` is not on `PATH`, `pms` asks, then downloads a pinned version into `~/.local/share/pms/bin` (the OS data folder on macOS) and checks its SHA-256 against a value pinned in `crates/pms/src/cloudflared.rs`. `--yes` skips the question. To bump the version, change `VERSION` and the four checksums, then run `cargo test -p pms -- --ignored real_downloads`.
+- A connector token (Tailscale auth key or cloudflared token) comes from standard input or a file with no group or world permissions. It is never accepted as a command-line value. `pms network enable` with a token makes the connector, or replaces its token.
 
 - Object storage needs a sign-in, not an API token: the API answers 403 to tokens. A project member passes `--project <project>` (the owner of the project is the account) or `--account <owner-id>`. Use one of them, not both. A key secret prints one time. `--env` prints `export` lines for the AWS CLI and SDKs, for example `eval "$(pms storage key create ci --env)"`. Storage uses path style only. The first line of the `--env` output says so.
-- `pms db connect <db>` opens `localhost:<port>` (default 5432) to a running database through the same SSH jump host, with `ssh -N -L`. It prints `postgres://app:<password>@localhost:<port>/app`: put the database password in place of `<password>` (the password is shown one time at create; `pms db reset-password` makes a new one). Nothing is public. You need a saved SSH key (`pms ssh-key add`); pass the private key with `-i` if ssh does not find it. All members of the project can connect. It needs `cloudflared` as described above. The local port is on `127.0.0.1` only. Press Ctrl-C to close the tunnel.
+- A project has at most one Tailscale connector and one cloudflared connector. A connector reaches only the targets you choose with `pms network expose`. Use `pms network show` for the status and the address of each target.
+- `pms network expose <name>` takes a container or database name (or ID). `--port` is needed when the container has more than one port. `--via both` (the default) uses each connector that is on. `--external-port` sets the port on the tailnet name (Tailscale only); the default is the target port.
+- Tailscale is beta. The addresses are on your tailnet, as `pms network show` prints them.
+- cloudflared targets are reached through a Cloudflare Tunnel. You set the routes in your Cloudflare dashboard, to the origin that `pms network show` prints.
 
 The session is kept in `~/.config/pms/credentials.json` with mode `0600`. The folder is `~/.config/pms` with mode `0700` when `pms` creates it. `pms` does not use the OS keychain.
 
@@ -121,7 +126,7 @@ An API token lets a script or CI job use one project. It is not a sign-in.
      - run: pms whoami
    ```
 
-A token works for the management API of its project only. The API refuses these for a token: token management, SSH keys, members, AI keys, project create, change and delete, account access, registry credential changes, and admin. Then `pms` shows the API message. Bad, revoked and expired tokens get `The API token is not valid.`. Too many bad checks from one network give a `429` for 10 minutes.
+A token works for the management API of its project only. The API refuses these for a token: token management, members, AI keys, project create, change and delete, account access, registry credential changes, and admin. Then `pms` shows the API message. Bad, revoked and expired tokens get `The API token is not valid.`. Too many bad checks from one network give a `429` for 10 minutes.
 
 For sandboxes, use the same token as the E2B API key:
 

@@ -130,47 +130,13 @@ async fn members_invite_and_remove() {
 }
 
 #[tokio::test]
-async fn ssh_keys_crud() {
-    let (server, client) = common::setup().await;
-    let key = json!({"id": "ssh_1", "name": "laptop", "public_key": "ssh-ed25519 AAAA x",
-        "fingerprint": "SHA256:abc", "created_at": "2026-10-08T10:00:00+00:00"});
-    Mock::given(method("GET"))
-        .and(path("/v1/ssh-keys"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [key.clone()]})))
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/v1/ssh-keys"))
-        .and(body_json(
-            json!({"name": "laptop", "public_key": "ssh-ed25519 AAAA x"}),
-        ))
-        .respond_with(ResponseTemplate::new(201).set_body_json(key))
-        .mount(&server)
-        .await;
-    Mock::given(method("DELETE"))
-        .and(path("/v1/ssh-keys/ssh_1"))
-        .respond_with(ResponseTemplate::new(204))
-        .mount(&server)
-        .await;
-    assert_eq!(
-        client.ssh_keys().await.unwrap()[0].fingerprint,
-        "SHA256:abc"
-    );
-    client
-        .add_ssh_key("laptop", "ssh-ed25519 AAAA x")
-        .await
-        .unwrap();
-    client.delete_ssh_key("ssh_1").await.unwrap();
-}
-
-#[tokio::test]
 async fn ids_are_escaped_in_paths() {
     let (server, client) = common::setup().await;
     Mock::given(method("DELETE"))
-        .and(path("/v1/ssh-keys/a%2Fb"))
+        .and(path("/v1/projects/prj_a/members/a%2Fb"))
         .respond_with(ResponseTemplate::new(204))
         .expect(1)
         .mount(&server)
         .await;
-    client.delete_ssh_key("a/b").await.unwrap();
+    client.remove_member("prj_a", "a/b").await.unwrap();
 }

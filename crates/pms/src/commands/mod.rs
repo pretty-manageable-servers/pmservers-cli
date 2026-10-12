@@ -6,9 +6,9 @@ mod container;
 mod db;
 mod events;
 mod member;
+mod network;
 mod project;
 mod registry;
-mod ssh_key;
 mod storage;
 mod token;
 
@@ -30,8 +30,8 @@ pub async fn run(ctx: &Ctx, command: Command) -> Result<()> {
         Command::Container(c) => container::run(ctx, *c).await,
         Command::RegistryCredential(c) => registry::run(ctx, c).await,
         Command::Db(c) => db::run(ctx, c).await,
+        Command::Network(c) => network::run(ctx, c).await,
         Command::AiKey(c) => ai_key::run(ctx, c).await,
-        Command::SshKey(c) => ssh_key::run(ctx, c).await,
         Command::Token(c) => token::run(ctx, c).await,
         Command::Storage(c) => storage::run(ctx, c).await,
     }

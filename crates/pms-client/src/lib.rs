@@ -2,6 +2,7 @@
 
 pub mod ai_keys;
 pub mod client;
+pub mod connectors;
 pub mod containers;
 pub mod core;
 pub mod databases;

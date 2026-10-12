@@ -4,11 +4,10 @@ use anyhow::{anyhow, Result};
 use pms_client::databases::{CreateDatabase, Database};
 use pms_client::Client;
 
-use crate::cli::{DbCmd, DbConnectArgs, VectorCmd, WaitArgs};
+use crate::cli::{DbCmd, VectorCmd, WaitArgs};
 use crate::ctx::Ctx;
 use crate::output::{print_kv, print_table, status_text, ts, warn_one_time};
 use crate::wait::{self, Snapshot};
-use crate::{cloudflared, ssh};
 
 pub async fn run(ctx: &Ctx, cmd: DbCmd) -> Result<()> {
     match cmd {
@@ -24,7 +23,6 @@ pub async fn run(ctx: &Ctx, cmd: DbCmd) -> Result<()> {
         DbCmd::Vector(VectorCmd::On { database }) => vector(ctx, &database, true).await,
         DbCmd::Vector(VectorCmd::Off { database }) => vector(ctx, &database, false).await,
         DbCmd::ResetPassword { database } => reset_password(ctx, &database).await,
-        DbCmd::Connect(a) => connect(ctx, a).await,
     }
 }
 
@@ -227,82 +225,5 @@ async fn reset_password(ctx: &Ctx, wanted: &str) -> Result<()> {
     ))?;
     let updated = client.reset_database_password(&project, &d.id).await?;
     print_with_secret(ctx, &updated);
-    Ok(())
-}
-
-/// Fail with a clear message if the local port is taken. Only localhost is used.
-fn check_port_free(port: u16) -> Result<()> {
-    std::net::TcpListener::bind(("127.0.0.1", port))
-        .map(drop)
-        .map_err(|e| anyhow!("Local port {port} is not free ({e}). Use --port to pick another."))
-}
-
-/// Wait until ssh listens on the local port. ssh does this after it has logged in.
-async fn wait_listening(child: &mut tokio::process::Child, port: u16) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Err(anyhow!(
-                "ssh stopped before the tunnel was ready ({status}). Check that your key is saved \
-                 (`pms ssh-key list`) and pass it with -i if ssh does not find it."
-            ));
-        }
-        if tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .is_ok()
-        {
-            return Ok(());
-        }
-        if tokio::time::Instant::now() > deadline {
-            return Err(anyhow!("The tunnel was not ready after 2 minutes."));
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-}
-
-async fn connect(ctx: &Ctx, a: DbConnectArgs) -> Result<()> {
-    let project = ctx.project_id().await?;
-    let client = ctx.client()?;
-    let db = find(&client, &project, &a.database).await?;
-    // Check the database and the port first. Do not offer a download for a database that we cannot reach.
-    ssh::database_args(&db, "cloudflared", a.identity.as_deref(), a.port)?;
-    check_port_free(a.port)?;
-    let cf = cloudflared::ensure(ctx).await?;
-    let args = ssh::database_args(&db, &cf.to_string_lossy(), a.identity.as_deref(), a.port)?;
-    let mut child = tokio::process::Command::new("ssh")
-        .args(&args)
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                anyhow!("`ssh` was not found. Install an OpenSSH client.")
-            }
-            _ => anyhow!("cannot run ssh: {e}"),
-        })?;
-    // Ctrl-C reaches ssh too, because it is in the same process group. Stop it here as well.
-    tokio::select! {
-        ready = wait_listening(&mut child, a.port) => ready?,
-        _ = tokio::signal::ctrl_c() => return stop(&mut child).await,
-    }
-    eprintln!(
-        "Listening on localhost:{}. Replace <password> with the database password (`pms db reset-password` makes a new one). Press Ctrl-C to stop.",
-        a.port
-    );
-    println!(
-        "postgres://{}:<password>@localhost:{}/{}",
-        db.user, a.port, db.database
-    );
-    tokio::select! {
-        status = child.wait() => {
-            let status = status?;
-            Err(anyhow!("ssh stopped ({status}). The tunnel is closed."))
-        }
-        _ = tokio::signal::ctrl_c() => stop(&mut child).await,
-    }
-}
-
-async fn stop(child: &mut tokio::process::Child) -> Result<()> {
-    let _ = child.kill().await;
-    eprintln!("Stopped.");
     Ok(())
 }

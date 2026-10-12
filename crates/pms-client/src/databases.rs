@@ -23,12 +23,6 @@ pub struct Database {
     pub port: u16,
     pub database: String,
     pub user: String,
-    /// The address of the database behind the SSH jump host. Empty until the database has one.
-    #[serde(default)]
-    pub private_ip: Option<String>,
-    /// The SSH jump host. Empty in local development.
-    #[serde(default)]
-    pub ssh_host: String,
     /// `null` while the database is provisioning.
     #[serde(default)]
     pub used_bytes: Option<u64>,

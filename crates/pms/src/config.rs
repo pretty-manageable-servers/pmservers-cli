@@ -15,15 +15,6 @@ pub fn config_dir() -> Result<PathBuf> {
     Ok(home.join(".config").join("pms"))
 }
 
-/// `PMS_DATA_DIR`, else the OS data folder (`~/.local/share/pms` on Linux).
-pub fn data_dir() -> Result<PathBuf> {
-    if let Some(dir) = std::env::var_os("PMS_DATA_DIR") {
-        return Ok(PathBuf::from(dir));
-    }
-    let base = dirs::data_dir().context("cannot find the data directory")?;
-    Ok(base.join("pms"))
-}
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
