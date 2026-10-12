@@ -480,3 +480,31 @@ async fn registry_credentials_token_from_stdin_and_never_in_output() {
         .assert()
         .success();
 }
+
+#[test]
+fn tunnel_options_are_removed_from_container_create_and_edit() {
+    // Connectors replace the container tunnels: `pms network` has the commands now.
+    let env = Env::new();
+    env.cmd("http://unused")
+        .args([
+            "-p",
+            PRJ,
+            "container",
+            "create",
+            "web",
+            "--image",
+            "img:1",
+            "--size",
+            "pms-c-250m-512",
+            "--tunnel-port",
+            "3000",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+    env.cmd("http://unused")
+        .args(["-p", PRJ, "container", "edit", CTR, "--detach-tunnel"])
+        .assert()
+        .failure()
+        .code(2);
+}

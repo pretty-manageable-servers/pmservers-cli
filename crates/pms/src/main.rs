@@ -1,5 +1,4 @@
 mod cli;
-mod cloudflared;
 mod commands;
 mod config;
 mod ctx;
@@ -7,8 +6,8 @@ mod envfile;
 mod login;
 mod output;
 mod session;
-mod ssh;
 mod supabase;
+mod token_input;
 mod wait;
 
 use clap::{CommandFactory, FromArgMatches};

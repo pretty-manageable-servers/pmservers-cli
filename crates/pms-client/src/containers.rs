@@ -65,9 +65,6 @@ pub struct Container {
     /// The name other containers in the same project use, as `host:port`. Null if no ports.
     #[serde(default)]
     pub internal_host: Option<String>,
-    /// A managed Cloudflare Tunnel connector attached to this container, if enabled.
-    #[serde(default)]
-    pub tunnel: Option<TunnelConnection>,
     /// provisioning, running, stopped, failed, deleting or unknown.
     pub status: String,
     #[serde(default)]
@@ -90,21 +87,6 @@ pub struct CreateContainer {
     pub runtime: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tunnel_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tunnel_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TunnelConnection {
-    pub port: u16,
-    pub origin: String,
-    pub status: String,
-    #[serde(default)]
-    pub observed_at: Option<String>,
-    #[serde(default)]
-    pub message: Option<String>,
 }
 
 /// Fields that are `None` are not sent and stay as they are. `env` replaces all variables.
@@ -129,16 +111,6 @@ pub struct UpdateContainer {
     /// `Some(vec![])` removes all ports.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<u16>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tunnel_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tunnel_token: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub detach_tunnel: bool,
-}
-
-fn is_false(value: &bool) -> bool {
-    !value
 }
 
 /// The most ports for one container.

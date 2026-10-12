@@ -58,6 +58,9 @@ pub enum Command {
     /// Postgres databases.
     #[command(subcommand)]
     Db(DbCmd),
+    /// Project network: Tailscale and cloudflared connectors, and what they reach.
+    #[command(subcommand)]
+    Network(NetworkCmd),
     /// Keys for the AI API.
     #[command(subcommand, name = "ai-key")]
     AiKey(AiKeyCmd),
@@ -289,15 +292,6 @@ pub struct CreateContainerArgs {
     /// project can connect, as NAME:PORT.
     #[arg(long = "port", value_name = "PORT", value_parser = clap::value_parser!(u16).range(1..))]
     pub ports: Vec<u16>,
-    /// Attach a remotely managed Cloudflare Tunnel to this declared port.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
-    pub tunnel_port: Option<u16>,
-    /// Read the connector token from a private file (mode 0600 or stricter).
-    #[arg(long, value_name = "FILE", conflicts_with = "tunnel_token_stdin")]
-    pub tunnel_token_file: Option<std::path::PathBuf>,
-    /// Read the connector token from standard input.
-    #[arg(long, conflicts_with = "tunnel_token_file")]
-    pub tunnel_token_stdin: bool,
     #[command(flatten)]
     pub env: EnvArgs,
     #[command(flatten)]
@@ -319,18 +313,6 @@ pub struct EditContainerArgs {
     /// Remove all ports.
     #[arg(long)]
     pub clear_ports: bool,
-    /// Change the attached tunnel's origin port.
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..), conflicts_with = "detach_tunnel")]
-    pub tunnel_port: Option<u16>,
-    /// Replace the connector token from a private file (mode 0600 or stricter).
-    #[arg(long, value_name = "FILE", conflicts_with_all = ["tunnel_token_stdin", "detach_tunnel"])]
-    pub tunnel_token_file: Option<std::path::PathBuf>,
-    /// Replace the connector token from standard input.
-    #[arg(long, conflicts_with_all = ["tunnel_token_file", "detach_tunnel"])]
-    pub tunnel_token_stdin: bool,
-    /// Remove the connector and encrypted token.
-    #[arg(long, conflicts_with_all = ["tunnel_port", "tunnel_token_file", "tunnel_token_stdin"])]
-    pub detach_tunnel: bool,
     /// Registry credential (ID or name).
     #[arg(long, conflicts_with = "no_registry_credential")]
     pub registry_credential: Option<String>,
@@ -432,20 +414,84 @@ pub enum DbCmd {
     Vector(VectorCmd),
     /// Make a new password. The password is shown one time.
     ResetPassword { database: String },
-    /// Open a local port to a database through the SSH jump host. Press Ctrl-C to stop.
-    Connect(DbConnectArgs),
+}
+
+#[derive(Subcommand)]
+pub enum NetworkCmd {
+    /// Show the connectors, their status and their targets with addresses.
+    Show,
+    /// The Tailscale connector. Its targets are reachable on your tailnet.
+    #[command(subcommand)]
+    Tailscale(TailscaleCmd),
+    /// The cloudflared connector. Its targets are reached through a Cloudflare Tunnel.
+    #[command(subcommand)]
+    Cloudflared(CloudflaredCmd),
+    /// Make a container or database reachable through a connector.
+    Expose(ExposeArgs),
+    /// Stop a container or database from being reachable through a connector.
+    Unexpose(UnexposeArgs),
+}
+
+#[derive(Subcommand)]
+pub enum TailscaleCmd {
+    /// Turn on the Tailscale connector, or replace its auth key. Reads the key from standard input
+    /// unless --auth-key-file is given.
+    Enable {
+        /// Read the auth key from a private file (mode 0600 or stricter).
+        #[arg(long, value_name = "FILE")]
+        auth_key_file: Option<std::path::PathBuf>,
+    },
+    /// Turn off the Tailscale connector. Its targets stop being reachable.
+    Disable,
+}
+
+#[derive(Subcommand)]
+pub enum CloudflaredCmd {
+    /// Turn on the cloudflared connector, or replace its token. Reads the token from standard input
+    /// unless --token-file is given.
+    Enable {
+        /// Read the connector token from a private file (mode 0600 or stricter).
+        #[arg(long, value_name = "FILE")]
+        token_file: Option<std::path::PathBuf>,
+    },
+    /// Turn off the cloudflared connector. Its targets stop being reachable.
+    Disable,
+}
+
+/// Which connector `expose` and `unexpose` use.
+#[derive(Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum Via {
+    Tailscale,
+    Cloudflared,
+    /// Each connector that is on.
+    Both,
 }
 
 #[derive(Args)]
-pub struct DbConnectArgs {
-    /// Database ID or name.
-    pub database: String,
-    /// Local port to listen on (on localhost only).
-    #[arg(long, default_value_t = 5432)]
-    pub port: u16,
-    /// Private key file to use. Its public key must be saved on your account (`pms ssh-key list`).
-    #[arg(short = 'i', long)]
-    pub identity: Option<std::path::PathBuf>,
+pub struct ExposeArgs {
+    /// Container or database name, or its ID.
+    pub name: String,
+    /// The port to expose. Needed when the container has more than one port.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    pub port: Option<u16>,
+    /// The connector to use.
+    #[arg(long, value_enum, default_value_t = Via::Both)]
+    pub via: Via,
+    /// Tailscale only: the port on the tailnet name. Default: the same as --port.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    pub external_port: Option<u16>,
+}
+
+#[derive(Args)]
+pub struct UnexposeArgs {
+    /// Container or database name, or its ID.
+    pub name: String,
+    /// The port to stop exposing. Default: every port of the container or database.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    pub port: Option<u16>,
+    /// The connector to use.
+    #[arg(long, value_enum, default_value_t = Via::Both)]
+    pub via: Via,
 }
 
 #[derive(Subcommand)]
