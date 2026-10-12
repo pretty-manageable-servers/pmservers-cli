@@ -4,6 +4,7 @@ use pms_client::storage::{
 };
 
 use crate::cli::{AccountArgs, BucketCmd, CreateStorageKeyArgs, StorageCmd, StorageKeyCmd};
+use crate::config::Config;
 use crate::ctx::Ctx;
 use crate::output::{print_kv, print_table, status_text, ts, warn_one_time};
 use crate::session;
@@ -25,8 +26,9 @@ pub async fn run(ctx: &Ctx, cmd: StorageCmd) -> Result<()> {
     result.map_err(explain)
 }
 
-/// The owner ID of the storage account. `--account` gives it. `--project` gives a project, and the
-/// owner of that project is the account. Neither: `None`, which is the caller's own account.
+/// The owner ID of the storage account. `--account` gives it. Else the project from `--project`,
+/// `PMS_PROJECT` or `pms project use`, like the other commands: the owner of that project is the account.
+/// No project at all: `None`, which is the caller's own account.
 async fn account(ctx: &Ctx, a: &AccountArgs) -> Result<Option<String>> {
     if let Some(owner) = &a.account {
         if ctx.project_typed {
@@ -34,10 +36,14 @@ async fn account(ctx: &Ctx, a: &AccountArgs) -> Result<Option<String>> {
         }
         return Ok(Some(owner.clone()));
     }
-    match &ctx.project {
+    let project = match &ctx.project {
+        Some(p) => Some(p.clone()),
+        None => Config::load()?.project,
+    };
+    match project {
         None => Ok(None),
         Some(project) => {
-            let id = ctx.resolve_project(project).await?;
+            let id = ctx.resolve_project(&project).await?;
             Ok(Some(ctx.client()?.project(&id).await?.owner_id))
         }
     }

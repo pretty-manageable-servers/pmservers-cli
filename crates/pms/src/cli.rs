@@ -507,7 +507,7 @@ pub enum StorageCmd {
 /// Storage routes need the owner's account. A project member passes the owner's ID, or the project.
 #[derive(Args)]
 pub struct AccountArgs {
-    /// The owner ID of the account. For a project member. Default: your own account.
+    /// The owner ID of the account. For a project member. Default: the owner of the current project (`pms project use`), else your own account.
     /// Cannot be used with --project.
     #[arg(long, value_name = "OWNER_ID")]
     pub account: Option<String>,
