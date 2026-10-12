@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use pms_client::storage::{
     Bucket, CreateBucket, CreateStorageKey, KeyBuckets, Storage, StorageKey, StorageKeyWithSecret,
 };
@@ -15,17 +15,48 @@ pub async fn run(ctx: &Ctx, cmd: StorageCmd) -> Result<()> {
             "Object storage does not accept API tokens. Unset PMS_TOKEN and sign in with `pms login`."
         );
     }
-    match cmd {
+    let result = match cmd {
         StorageCmd::Status(a) => status(ctx, &a).await,
         StorageCmd::Enable(a) => enable(ctx, &a).await,
         StorageCmd::Disable(a) => disable(ctx, &a).await,
         StorageCmd::Bucket(c) => bucket(ctx, c).await,
         StorageCmd::Key(c) => key(ctx, c).await,
+    };
+    result.map_err(explain)
+}
+
+/// The owner ID of the storage account. `--account` gives it. `--project` gives a project, and the
+/// owner of that project is the account. Neither: `None`, which is the caller's own account.
+async fn account(ctx: &Ctx, a: &AccountArgs) -> Result<Option<String>> {
+    if let Some(owner) = &a.account {
+        if ctx.project_typed {
+            bail!("--account and --project cannot be used together. Use one of them.");
+        }
+        return Ok(Some(owner.clone()));
+    }
+    match &ctx.project {
+        None => Ok(None),
+        Some(project) => {
+            let id = ctx.resolve_project(project).await?;
+            Ok(Some(ctx.client()?.project(&id).await?.owner_id))
+        }
     }
 }
 
-fn account(a: &AccountArgs) -> Option<&str> {
-    a.account.as_deref()
+/// Make the API code `not_available` (the global switch is off) a clear message. Other errors stay as they are.
+fn explain(e: anyhow::Error) -> anyhow::Error {
+    let off = matches!(
+        e.downcast_ref::<pms_client::Error>()
+            .and_then(|err| err.code()),
+        Some("not_available")
+    );
+    if off {
+        anyhow!(
+            "Object storage is not available now. It is switched off for all accounts. Try again later."
+        )
+    } else {
+        e
+    }
 }
 
 /// Bytes in the unit that fits: B, KiB, MiB or GiB.
@@ -53,13 +84,19 @@ fn yes_no(v: bool) -> String {
 // --- status, enable, disable ---
 
 async fn status(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
-    let s = ctx.client()?.storage(account(a)).await?;
+    let s = ctx
+        .client()?
+        .storage(account(ctx, a).await?.as_deref())
+        .await?;
     ctx.print(&s, storage_details);
     Ok(())
 }
 
 async fn enable(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
-    let s = ctx.client()?.enable_storage(account(a)).await?;
+    let s = ctx
+        .client()?
+        .enable_storage(account(ctx, a).await?.as_deref())
+        .await?;
     ctx.print(&s, storage_details);
     Ok(())
 }
@@ -68,7 +105,10 @@ async fn disable(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
     ctx.confirm(
         "Turn off object storage for this account? Its keys and data are deleted. There are no backups.",
     )?;
-    let s = ctx.client()?.disable_storage(account(a)).await?;
+    let s = ctx
+        .client()?
+        .disable_storage(account(ctx, a).await?.as_deref())
+        .await?;
     ctx.print(&s, storage_details);
     Ok(())
 }
@@ -109,7 +149,7 @@ async fn bucket(ctx: &Ctx, cmd: BucketCmd) -> Result<()> {
         BucketCmd::Public { name, state, acct } => {
             let b = ctx
                 .client()?
-                .set_bucket_public(account(&acct), &name, state.is_on())
+                .set_bucket_public(account(ctx, &acct).await?.as_deref(), &name, state.is_on())
                 .await?;
             ctx.print(&b, bucket_details);
             Ok(())
@@ -118,7 +158,10 @@ async fn bucket(ctx: &Ctx, cmd: BucketCmd) -> Result<()> {
 }
 
 async fn bucket_list(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
-    let list = ctx.client()?.storage_buckets(account(a)).await?;
+    let list = ctx
+        .client()?
+        .storage_buckets(account(ctx, a).await?.as_deref())
+        .await?;
     ctx.print(&list, |list| {
         print_table(
             &["name", "status", "public", "used", "objects", "created"],
@@ -144,7 +187,10 @@ async fn bucket_create(ctx: &Ctx, name: String, public: bool, a: &AccountArgs) -
         name,
         public_read: public,
     };
-    let b = ctx.client()?.create_bucket(account(a), &body).await?;
+    let b = ctx
+        .client()?
+        .create_bucket(account(ctx, a).await?.as_deref(), &body)
+        .await?;
     ctx.print(&b, bucket_details);
     Ok(())
 }
@@ -153,7 +199,9 @@ async fn bucket_delete(ctx: &Ctx, name: &str, a: &AccountArgs) -> Result<()> {
     ctx.confirm(&format!(
         "Delete bucket {name}? Only an empty bucket can be deleted. There are no backups."
     ))?;
-    ctx.client()?.delete_bucket(account(a), name).await?;
+    ctx.client()?
+        .delete_bucket(account(ctx, a).await?.as_deref(), name)
+        .await?;
     ctx.done(&format!("Deleting bucket {name}."));
     Ok(())
 }
@@ -181,7 +229,10 @@ async fn key(ctx: &Ctx, cmd: StorageKeyCmd) -> Result<()> {
 }
 
 async fn key_list(ctx: &Ctx, a: &AccountArgs) -> Result<()> {
-    let list = ctx.client()?.storage_keys(account(a)).await?;
+    let list = ctx
+        .client()?
+        .storage_keys(account(ctx, a).await?.as_deref())
+        .await?;
     ctx.print(&list, |list| {
         print_table(
             &["key id", "name", "permission", "buckets", "created"],
@@ -210,7 +261,7 @@ async fn key_create(ctx: &Ctx, a: CreateStorageKeyArgs) -> Result<()> {
     };
     let key = ctx
         .client()?
-        .create_storage_key(account(&a.acct), &body)
+        .create_storage_key(account(ctx, &a.acct).await?.as_deref(), &body)
         .await?;
     print_secret(ctx, &key, a.env);
     Ok(())
@@ -221,7 +272,10 @@ async fn key_reset(ctx: &Ctx, key_id: &str, env: bool, a: &AccountArgs) -> Resul
     ctx.confirm(&format!(
         "Make a new key ID and secret for {key_id}? The old key ID and secret stop working. Apps that use them must change."
     ))?;
-    let key = ctx.client()?.reset_storage_key(account(a), key_id).await?;
+    let key = ctx
+        .client()?
+        .reset_storage_key(account(ctx, a).await?.as_deref(), key_id)
+        .await?;
     print_secret(ctx, &key, env);
     Ok(())
 }
@@ -230,7 +284,9 @@ async fn key_delete(ctx: &Ctx, key_id: &str, a: &AccountArgs) -> Result<()> {
     ctx.confirm(&format!(
         "Delete key {key_id}? Apps that use it stop working."
     ))?;
-    ctx.client()?.delete_storage_key(account(a), key_id).await?;
+    ctx.client()?
+        .delete_storage_key(account(ctx, a).await?.as_deref(), key_id)
+        .await?;
     ctx.done(&format!("Deleted key {key_id}."));
     Ok(())
 }
@@ -282,10 +338,11 @@ fn secret_details(k: &StorageKeyWithSecret) {
     ]);
 }
 
-/// Export lines for the AWS CLI and the AWS SDKs.
+/// Export lines for the AWS CLI and the AWS SDKs. The first line is a comment, so `eval` still works.
 fn env_lines(k: &StorageKeyWithSecret) -> String {
     format!(
-        "export AWS_ACCESS_KEY_ID={}\n\
+        "# Use path style: aws configure set default.s3.addressing_style path\n\
+         export AWS_ACCESS_KEY_ID={}\n\
          export AWS_SECRET_ACCESS_KEY={}\n\
          export AWS_ENDPOINT_URL={}\n\
          export AWS_REGION={}\n\

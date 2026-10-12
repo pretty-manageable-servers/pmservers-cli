@@ -504,12 +504,22 @@ pub enum StorageCmd {
     Key(StorageKeyCmd),
 }
 
-/// Storage routes need the owner's account. A project member passes the owner's ID.
+/// Storage routes need the owner's account. A project member passes the owner's ID, or the project.
 #[derive(Args)]
 pub struct AccountArgs {
     /// The owner ID of the account. For a project member. Default: your own account.
+    /// Cannot be used with --project.
     #[arg(long, value_name = "OWNER_ID")]
     pub account: Option<String>,
+}
+
+/// True when `--project` was typed on the command line, at any level. Clap counts a value from
+/// `PMS_PROJECT` as present too, so a conflict check in clap would also fire on the environment.
+pub fn project_typed(matches: &clap::ArgMatches) -> bool {
+    matches.value_source("project") == Some(clap::parser::ValueSource::CommandLine)
+        || matches
+            .subcommand()
+            .is_some_and(|(_, sub)| project_typed(sub))
 }
 
 #[derive(Subcommand)]

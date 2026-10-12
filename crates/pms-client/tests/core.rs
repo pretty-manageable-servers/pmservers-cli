@@ -6,6 +6,7 @@ use wiremock::{Mock, ResponseTemplate};
 
 fn project(id: &str, name: &str, role: &str) -> serde_json::Value {
     json!({"id": id, "name": name, "region": "ca-tor-1", "role": role,
+           "owner_id": "5b1c0e2a-8d41-4f3e-9a77-1e0c3d2b6f90",
            "created_at": "2026-10-09T10:00:00+00:00"})
 }
 

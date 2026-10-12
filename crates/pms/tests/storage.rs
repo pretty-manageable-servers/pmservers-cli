@@ -1,6 +1,6 @@
 mod common;
 
-use common::Env;
+use common::{project_json_owned, Env, PRJ};
 use predicates::prelude::*;
 use serde_json::json;
 use wiremock::matchers::{body_json, method, path, query_param};
@@ -127,6 +127,95 @@ async fn account_flag_sends_the_owner_id() {
         .args(["storage", "status", "--account", OWNER])
         .assert()
         .success();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn project_flag_uses_the_owner_of_the_project() {
+    let (api, env) = setup().await;
+    const OTHER_OWNER: &str = "0c9e1f7a-2b3d-4e5f-8a6b-7c8d9e0f1a2b";
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/projects/{PRJ}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(project_json_owned(
+            PRJ,
+            "slop",
+            "member",
+            OTHER_OWNER,
+        )))
+        .expect(1)
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/storage"))
+        .and(query_param("account_id", OTHER_OWNER))
+        .respond_with(ResponseTemplate::new(200).set_body_json(storage_json("active")))
+        .expect(1)
+        .mount(&api)
+        .await;
+    env.cmd(&api.uri())
+        .args(["storage", "status", "--project", PRJ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("active"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn account_and_project_conflict() {
+    let (api, env) = setup().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/storage"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(storage_json("active")))
+        .expect(0)
+        .mount(&api)
+        .await;
+    env.cmd(&api.uri())
+        .args(["storage", "status", "--account", OWNER, "--project", PRJ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used together"));
+    env.cmd(&api.uri())
+        .args(["--project", PRJ, "storage", "status", "--account", OWNER])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used together"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn account_flag_works_with_project_env_set() {
+    let (api, env) = setup().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/storage"))
+        .and(query_param("account_id", OWNER))
+        .respond_with(ResponseTemplate::new(200).set_body_json(storage_json("active")))
+        .expect(1)
+        .mount(&api)
+        .await;
+    env.cmd(&api.uri())
+        .env("PMS_PROJECT", PRJ)
+        .args(["storage", "status", "--account", OWNER])
+        .assert()
+        .success();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn not_available_has_a_clear_message() {
+    let (api, env) = setup().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/storage/enable"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_json(json!({"error": {"code":
+            "not_available", "message": "Object storage is not available now."}})),
+        )
+        .expect(1)
+        .mount(&api)
+        .await;
+    env.cmd(&api.uri())
+        .args(["storage", "enable"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("switched off for all accounts")
+                .and(predicate::str::contains("Try again later")),
+        );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -341,7 +430,9 @@ async fn key_create_env_prints_only_export_lines() {
         .unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.starts_with("export AWS_ACCESS_KEY_ID='"));
+    assert!(stdout.starts_with(
+        "# Use path style: aws configure set default.s3.addressing_style path\nexport AWS_ACCESS_KEY_ID='"
+    ));
     assert!(stdout.contains(&format!("export AWS_SECRET_ACCESS_KEY='{SECRET}'\n")));
     assert!(stdout.contains("export AWS_ENDPOINT_URL='https://s3.pmservers.org'\n"));
     assert!(stdout.contains("export AWS_DEFAULT_REGION='pms'\n"));
