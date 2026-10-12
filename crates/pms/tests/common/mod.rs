@@ -75,13 +75,6 @@ pub fn project_json(id: &str, name: &str, role: &str) -> serde_json::Value {
            "created_at": "2026-10-09T10:00:00+00:00"})
 }
 
-pub fn vm_json(status: &str) -> serde_json::Value {
-    json!({"id": "vm_abc123def456", "name": "web", "status": status, "status_message": null,
-           "size": "pms-s-1", "image": "ubuntu-24.04", "disk_gb": 10, "private_ip": "10.0.0.5",
-           "ssh_host": "jump.example.org", "ssh_user": "ubuntu",
-           "created_at": "2026-10-09T10:00:00+00:00"})
-}
-
 pub const PRJ: &str = "prj_aaaaaaaaaaaa";
 
 /// A directory with scripts that stand in for programs. Put it first in PATH.
