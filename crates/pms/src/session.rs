@@ -62,23 +62,14 @@ impl StoredSession {
     }
 }
 
-/// The result of a session lookup.
-#[derive(Debug)]
-pub enum Lookup {
-    Session(StoredSession),
-    /// No session exists.
-    SignedOut,
-    /// An old session is in the OS keychain, but pms cannot read it.
-    Unreadable,
-}
-
 /// The session file, `credentials.json` in the config folder.
 fn file_path() -> Result<PathBuf> {
     Ok(config_dir()?.join(FILE_NAME))
 }
 
-pub fn load() -> Result<Lookup> {
-    load_from(&file_path()?, &OsKeychain)
+/// The saved session, or `None` when there is no session file.
+pub fn load() -> Result<Option<StoredSession>> {
+    load_from(&file_path()?)
 }
 
 /// Saves the session. Returns the file that holds it.
@@ -88,33 +79,20 @@ pub fn save(session: &StoredSession) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Removes the session file. A missing file is not an error.
 pub fn clear() -> Result<()> {
-    clear_from(&file_path()?, &OsKeychain)
+    clear_from(&file_path()?)
 }
 
-pub fn load_from(path: &Path, old: &dyn LegacyKeychain) -> Result<Lookup> {
+pub fn load_from(path: &Path) -> Result<Option<StoredSession>> {
     match fs::read_to_string(path) {
         Ok(text) => {
             let session = serde_json::from_str(&text)
                 .with_context(|| format!("bad session file {}", path.display()))?;
-            return Ok(Lookup::Session(session));
+            Ok(Some(session))
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
-    }
-    // ONE-TIME MOVE from the OS keychain. Remove this block, and LegacyKeychain, in a later release.
-    // The keychain is read only when the session file is missing.
-    match old.read() {
-        LegacyRead::Found(text) => match serde_json::from_str::<StoredSession>(&text) {
-            Ok(session) => {
-                save_to(path, &session)?;
-                old.delete();
-                Ok(Lookup::Session(session))
-            }
-            Err(_) => Ok(Lookup::Unreadable),
-        },
-        LegacyRead::Empty => Ok(Lookup::SignedOut),
-        LegacyRead::Failed => Ok(Lookup::Unreadable),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
     }
 }
 
@@ -131,15 +109,12 @@ pub fn save_to(path: &Path, session: &StoredSession) -> Result<()> {
     write_atomic(path, text.as_bytes())
 }
 
-pub fn clear_from(path: &Path, old: &dyn LegacyKeychain) -> Result<()> {
+pub fn clear_from(path: &Path) -> Result<()> {
     match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e).with_context(|| format!("cannot remove {}", path.display())),
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("cannot remove {}", path.display())),
     }
-    // Remove an old keychain item too, so that the one-time move cannot bring it back.
-    old.delete();
-    Ok(())
 }
 
 /// Writes a temp file in the same folder, then renames it over `path`.
@@ -195,63 +170,6 @@ fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
 }
 
-/// The old keychain item. Only the one-time move uses it. Remove it in a later release.
-pub trait LegacyKeychain {
-    fn read(&self) -> LegacyRead;
-    /// Removes the item. It does not read the secret. Errors are ignored.
-    fn delete(&self);
-}
-
-pub enum LegacyRead {
-    Found(String),
-    Empty,
-    Failed,
-}
-
-/// The real keychain. Set `PMS_SKIP_KEYCHAIN_MOVE` in tests, so that they never read it.
-struct OsKeychain;
-
-const OLD_SERVICE: &str = "pms-cli";
-const OLD_USER: &str = "session";
-
-fn skip_keychain() -> bool {
-    std::env::var_os("PMS_SKIP_KEYCHAIN_MOVE").is_some()
-}
-
-impl LegacyKeychain for OsKeychain {
-    fn read(&self) -> LegacyRead {
-        if skip_keychain() {
-            return LegacyRead::Empty;
-        }
-        match keyring::Entry::new(OLD_SERVICE, OLD_USER).and_then(|e| e.get_password()) {
-            Ok(text) => LegacyRead::Found(text),
-            Err(keyring::Error::NoEntry) => LegacyRead::Empty,
-            // On macOS, an item that exists but is denied is the only reason for another error.
-            // On other systems, a missing keyring service means that there was no session.
-            Err(_) if cfg!(target_os = "macos") => LegacyRead::Failed,
-            Err(_) => LegacyRead::Empty,
-        }
-    }
-
-    fn delete(&self) {
-        if skip_keychain() {
-            return;
-        }
-        // The keyring crate reads the secret before it deletes. On macOS, call the API that
-        // only deletes, so that logout does not show a keychain prompt.
-        #[cfg(target_os = "macos")]
-        {
-            let _ = security_framework::passwords::delete_generic_password(OLD_SERVICE, OLD_USER);
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            if let Ok(entry) = keyring::Entry::new(OLD_SERVICE, OLD_USER) {
-                let _ = entry.delete_credential();
-            }
-        }
-    }
-}
-
 pub struct SessionTokens {
     session: Mutex<StoredSession>,
 }
@@ -298,45 +216,7 @@ impl TokenSource for SessionTokens {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
     use super::*;
-
-    /// A keychain that does not touch the real one. It counts reads and deletes.
-    struct FakeKeychain {
-        text: Option<String>,
-        fail: bool,
-        reads: Cell<u32>,
-        deletes: Cell<u32>,
-    }
-
-    impl FakeKeychain {
-        fn new(text: Option<&str>, fail: bool) -> Self {
-            Self {
-                text: text.map(str::to_owned),
-                fail,
-                reads: Cell::new(0),
-                deletes: Cell::new(0),
-            }
-        }
-    }
-
-    impl LegacyKeychain for FakeKeychain {
-        fn read(&self) -> LegacyRead {
-            self.reads.set(self.reads.get() + 1);
-            if self.fail {
-                return LegacyRead::Failed;
-            }
-            match &self.text {
-                Some(t) => LegacyRead::Found(t.clone()),
-                None => LegacyRead::Empty,
-            }
-        }
-
-        fn delete(&self) {
-            self.deletes.set(self.deletes.get() + 1);
-        }
-    }
 
     fn sample(token: &str) -> StoredSession {
         StoredSession {
@@ -413,104 +293,25 @@ mod tests {
     fn save_load_clear_round_trip() {
         let tmp = tempfile::TempDir::new().unwrap();
         let path = new_path(&tmp);
-        let keychain = FakeKeychain::new(None, false);
 
-        assert!(matches!(
-            load_from(&path, &keychain).unwrap(),
-            Lookup::SignedOut
-        ));
+        assert_eq!(load_from(&path).unwrap(), None);
 
         save_to(&path, &sample("a")).unwrap();
-        match load_from(&path, &keychain).unwrap() {
-            Lookup::Session(s) => assert_eq!(s, sample("a")),
-            other => panic!("expected a session, got {other:?}"),
-        }
+        assert_eq!(load_from(&path).unwrap(), Some(sample("a")));
 
-        clear_from(&path, &keychain).unwrap();
+        clear_from(&path).unwrap();
         assert!(!path.exists());
-        assert!(matches!(
-            load_from(&path, &keychain).unwrap(),
-            Lookup::SignedOut
-        ));
+        assert_eq!(load_from(&path).unwrap(), None);
         // Clearing twice is fine.
-        clear_from(&path, &keychain).unwrap();
+        clear_from(&path).unwrap();
     }
 
     #[test]
-    fn file_present_means_no_keychain_read() {
+    fn bad_session_file_is_an_error() {
         let tmp = tempfile::TempDir::new().unwrap();
         let path = new_path(&tmp);
-        save_to(&path, &sample("file")).unwrap();
-        let keychain =
-            FakeKeychain::new(Some(&serde_json::to_string(&sample("kc")).unwrap()), false);
-
-        match load_from(&path, &keychain).unwrap() {
-            Lookup::Session(s) => assert_eq!(s.access_token, "file"),
-            other => panic!("expected the file session, got {other:?}"),
-        }
-        assert_eq!(keychain.reads.get(), 0);
-        assert_eq!(keychain.deletes.get(), 0);
-    }
-
-    #[test]
-    fn move_from_keychain_writes_file_then_deletes_item() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let path = new_path(&tmp);
-        let text = serde_json::to_string(&sample("kc")).unwrap();
-        let keychain = FakeKeychain::new(Some(&text), false);
-
-        match load_from(&path, &keychain).unwrap() {
-            Lookup::Session(s) => assert_eq!(s, sample("kc")),
-            other => panic!("expected the moved session, got {other:?}"),
-        }
-        assert_eq!(keychain.reads.get(), 1);
-        assert_eq!(keychain.deletes.get(), 1);
-        assert_eq!(
-            fs::read_to_string(&path).unwrap(),
-            serde_json::to_string(&sample("kc")).unwrap()
-        );
-
-        // After the move, the keychain is not read again.
-        load_from(&path, &keychain).unwrap();
-        assert_eq!(keychain.reads.get(), 1);
-    }
-
-    #[test]
-    fn denied_keychain_read_is_unreadable_and_writes_nothing() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let path = new_path(&tmp);
-        let keychain = FakeKeychain::new(None, true);
-
-        assert!(matches!(
-            load_from(&path, &keychain).unwrap(),
-            Lookup::Unreadable
-        ));
-        assert!(!path.exists());
-        assert_eq!(keychain.reads.get(), 1);
-        assert_eq!(keychain.deletes.get(), 0);
-    }
-
-    #[test]
-    fn keychain_item_that_is_not_a_session_is_unreadable() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let path = new_path(&tmp);
-        let keychain = FakeKeychain::new(Some("not json"), false);
-
-        assert!(matches!(
-            load_from(&path, &keychain).unwrap(),
-            Lookup::Unreadable
-        ));
-        assert!(!path.exists());
-        assert_eq!(keychain.deletes.get(), 0);
-    }
-
-    #[test]
-    fn clear_removes_the_old_keychain_item() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let path = new_path(&tmp);
-        let keychain = FakeKeychain::new(None, false);
-        clear_from(&path, &keychain).unwrap();
-        assert_eq!(keychain.deletes.get(), 1);
-        assert_eq!(keychain.reads.get(), 0);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "not json").unwrap();
+        assert!(load_from(&path).is_err());
     }
 }

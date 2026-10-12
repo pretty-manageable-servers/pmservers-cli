@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::config::Config;
 use crate::output::{print_json, Format};
-use crate::session::{self, Lookup, SessionTokens};
+use crate::session::{self, SessionTokens};
 
 pub struct Ctx {
     pub format: Format,
@@ -38,13 +38,11 @@ impl Ctx {
         }
         let tokens: Arc<dyn TokenSource> = match session::env_token() {
             Some(token) => Arc::new(StaticToken(token)),
-            None => match session::load()? {
-                Lookup::Session(s) => Arc::new(SessionTokens::new(s)),
-                Lookup::SignedOut => bail!("You are not signed in. Run `pms login`."),
-                Lookup::Unreadable => {
-                    bail!("The old session in the OS keychain could not be read. Run `pms login`.")
-                }
-            },
+            None => {
+                let session = session::load()?
+                    .ok_or_else(|| anyhow!("You are not signed in. Run `pms login`."))?;
+                Arc::new(SessionTokens::new(session))
+            }
         };
         let client = Client::new(&self.api_url, tokens)?;
         Ok(self.client.get_or_init(|| client).clone())

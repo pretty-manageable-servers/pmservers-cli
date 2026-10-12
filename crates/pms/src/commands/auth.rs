@@ -7,7 +7,7 @@ use crate::cli::LoginArgs;
 use crate::ctx::Ctx;
 use crate::login;
 use crate::output::print_kv;
-use crate::session::{self, Lookup};
+use crate::session;
 use crate::supabase::{Supabase, SupabaseConfig};
 
 pub async fn login(ctx: &Ctx, args: LoginArgs) -> Result<()> {
@@ -44,18 +44,9 @@ pub async fn login(ctx: &Ctx, args: LoginArgs) -> Result<()> {
 }
 
 pub async fn logout(ctx: &Ctx) -> Result<()> {
-    let stored = match session::load()? {
-        Lookup::Session(s) => s,
-        Lookup::SignedOut => {
-            session::clear()?;
-            ctx.done("You were not signed in.");
-            return Ok(());
-        }
-        Lookup::Unreadable => {
-            session::clear()?;
-            ctx.done("Signed out.");
-            return Ok(());
-        }
+    let Some(stored) = session::load()? else {
+        ctx.done("You were not signed in.");
+        return Ok(());
     };
     // Remove the local copy even if the server cannot be reached.
     let revoke = match SupabaseConfig::for_session(&stored.supabase_url) {
