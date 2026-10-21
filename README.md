@@ -16,6 +16,14 @@ install pms-*/pms ~/.local/bin/pms
 
 The file names are `pms-<tag>-<target>.tar.gz`. The targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. `SHA256SUMS` lists the checksums. The macOS binaries are not signed or notarized.
 
+## Security notices
+
+### 2026-10: eMudhra intermediate CA compromise
+
+Eight intermediate CA certificates of eMudhra had weak keys. Browsers, Mozilla and Linux distributions now distrust them. `pms` 0.11.1 updates its built-in trust roots (`webpki-roots` 1.0.10, `rustls-webpki` 0.103.16) to distrust them too.
+
+Update to the latest release of `pms` (0.11.1 or later). `pms` also reads the trust store of your OS. Update the OS packages as well, for example `ca-certificates` on Linux.
+
 ## Build
 
 You need Rust stable.
